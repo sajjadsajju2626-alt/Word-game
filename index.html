@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>പേര് · സ്ഥലം · മൃഗം · സാധനം — Name Place Animal Thing</title>
+    <meta
+      name="description"
+      content="Interactive bilingual Malayalam-English Name, Place, Animal/Bird, Flower/Fruit, Thing parlor game with Solo vs Bot, Pass & Play, Online Multiplayer via Firebase Firestore, and Appeals & Review."
+    />
+    <meta property="og:title" content="പേര് · സ്ഥലം · മൃഗം · സാധനം — Name Place Animal Thing" />
+    <meta
+      property="og:description"
+      content="Interactive bilingual Malayalam-English Name, Place, Animal/Bird, Flower/Fruit, Thing parlor game with Online Multiplayer and Appeals & Review."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -42,7 +55,35 @@
     <script>
       (() => {
         // =====================================================================
-        // 1. CONSTANTS, CATEGORIES & A-Z BILINGUAL-FRIENDLY WORD DICTIONARY
+        // 1. FIREBASE CONFIGURATION & INITIALIZATION (FIRESTORE)
+        // =====================================================================
+        const firebaseConfig = {
+          apiKey: "AIzaSyD8ehtkO5yTFOXEHYrMoFjZM4h1tBe3LtE",
+          authDomain: "name-things-74394.firebaseapp.com",
+          projectId: "name-things-74394",
+          storageBucket: "name-things-74394.firebasestorage.app",
+          messagingSenderId: "309863161613",
+          appId: "1:309863161613:web:5eb40cf738527a71b99a44",
+          measurementId: "G-49YVCH536K",
+        };
+
+        let db = null;
+        let firebaseInitError = "";
+        try {
+          if (window.firebase && typeof window.firebase.initializeApp === "function") {
+            const app = window.firebase.apps && window.firebase.apps.length
+              ? window.firebase.app()
+              : window.firebase.initializeApp(firebaseConfig);
+            db = window.firebase.firestore(app);
+          } else {
+            firebaseInitError = "Firebase SDK could not be loaded. Check your internet connection.";
+          }
+        } catch (err) {
+          firebaseInitError = err && err.message ? err.message : "Failed to initialize Firebase.";
+        }
+
+        // =====================================================================
+        // 2. CONSTANTS, CATEGORIES & A-Z BILINGUAL-FRIENDLY WORD DICTIONARY
         // =====================================================================
         const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
@@ -94,7 +135,7 @@
         };
 
         // =====================================================================
-        // 2. SOUND ENGINE (Web Audio API)
+        // 3. SOUND ENGINE (Web Audio API)
         // =====================================================================
         const soundFx = (() => {
           let ctx = null;
@@ -137,7 +178,7 @@
         })();
 
         // =====================================================================
-        // 3. PURE GAME RULES, VALIDATION, SCORING & STANDINGS
+        // 4. PURE GAME RULES, VALIDATION, APPEALS & 10/5/0 SCORING
         // =====================================================================
         function escapeHtml(str) {
           return String(str)
@@ -197,57 +238,90 @@
           return { valid: true, reason: "ok", message: inDict ? `Verified "${upper}" word` : `Starts with "${upper}"`, inDictionary: inDict };
         }
 
-        function scoreRound(roundNumber, targetLetter, submissions, overrides = {}) {
+        function getAppealKey(playerId, catId) {
+          return `${playerId}__${catId}`;
+        }
+
+        function getAppealEntry(appeals, playerId, catId) {
+          if (!appeals) return { decision: "auto", by: "" };
+          const key = getAppealKey(playerId, catId);
+          return appeals[key] || { decision: "auto", by: "" };
+        }
+
+        function setAppealInMap(appeals, playerId, catId, decision, appealedBy) {
+          const next = { ...(appeals || {}) };
+          const key = getAppealKey(playerId, catId);
+          if (decision === "auto") {
+            delete next[key];
+          } else {
+            next[key] = { decision, by: appealedBy || "" };
+          }
+          return next;
+        }
+
+        function scoreRound(roundNumber, targetLetter, submissions, appeals = {}) {
           const upper = targetLetter.toUpperCase();
           const wordCounts = { name: new Map(), place: new Map(), animal: new Map(), plant: new Map(), thing: new Map() };
 
           const pre = submissions.map(({ player, answers }) => {
-            const validations = {};
+            const cellPre = {};
             for (const cat of CATEGORIES) {
-              const raw = answers[cat.id] || "";
+              const raw = String((answers && answers[cat.id]) || "").trim();
+              const norm = normalizeWord(raw);
               const val = validateWordForLetter(raw, upper, cat.id);
-              const vetoed = Boolean(overrides[player.id] && overrides[player.id][cat.id]);
-              validations[cat.id] = val;
-              if (val.valid && !vetoed) {
-                const norm = normalizeWord(raw);
+              const appeal = getAppealEntry(appeals, player.id, cat.id);
+              const decision = appeal.decision || "auto";
+              const effectiveValid =
+                raw.length > 0 &&
+                (decision === "approved" || (decision === "auto" && val.valid));
+
+              cellPre[cat.id] = { raw, norm, val, decision, appealedBy: appeal.by || "", effectiveValid };
+              if (effectiveValid && norm) {
                 wordCounts[cat.id].set(norm, (wordCounts[cat.id].get(norm) || 0) + 1);
               }
             }
-            return { player, answers, validations };
+            return { player, cellPre };
           });
 
-          const playerScores = pre.map(({ player, answers, validations }) => {
+          const playerScores = pre.map(({ player, cellPre }) => {
             const cells = {};
             let roundTotal = 0;
             for (const cat of CATEGORIES) {
-              const raw = String(answers[cat.id] || "").trim();
-              const norm = normalizeWord(raw);
-              const val = validations[cat.id];
-              const vetoed = Boolean(overrides[player.id] && overrides[player.id][cat.id]);
-
-              if (!val.valid) {
+              const item = cellPre[cat.id];
+              if (!item.raw) {
                 cells[cat.id] = {
-                  raw, normalized: norm, points: 0,
-                  status: val.reason === "blank" ? "blank" : val.reason === "wrong_letter" ? "wrong_letter" : "invalid",
-                  reason: val.message,
+                  raw: "", normalized: "", points: 0, status: "blank",
+                  reason: "No answer entered", appealDecision: "auto", appealedBy: "",
                 };
-              } else if (vetoed) {
+              } else if (!item.effectiveValid) {
+                const isRejected = item.decision === "rejected";
                 cells[cat.id] = {
-                  raw, normalized: norm, points: 0, status: "invalid",
-                  reason: "Challenged as invalid", overriddenInvalid: true,
+                  raw: item.raw, normalized: item.norm, points: 0,
+                  status: isRejected ? "invalid" : (item.val.reason === "wrong_letter" ? "wrong_letter" : "invalid"),
+                  reason: isRejected
+                    ? (item.appealedBy ? `Marked incorrect by ${item.appealedBy}` : "Marked incorrect on appeal")
+                    : item.val.message,
+                  appealDecision: item.decision,
+                  appealedBy: item.appealedBy,
                 };
               } else {
-                const isShared = (wordCounts[cat.id].get(norm) || 1) > 1;
+                const isShared = (wordCounts[cat.id].get(item.norm) || 1) > 1;
                 const pts = isShared ? 5 : 10;
                 roundTotal += pts;
+                const reason =
+                  item.decision === "approved"
+                    ? (isShared ? "Approved on appeal · +5 (shared)" : "Approved on appeal · +10")
+                    : (isShared ? "Shared word (+5)" : "Unique word (+10)");
                 cells[cat.id] = {
-                  raw, normalized: norm, points: pts,
+                  raw: item.raw, normalized: item.norm, points: pts,
                   status: isShared ? "shared" : "unique",
-                  reason: isShared ? "Shared word (+5)" : "Unique word (+10)",
+                  reason,
+                  appealDecision: item.decision,
+                  appealedBy: item.appealedBy,
                 };
               }
             }
-            return { playerId: player.id, playerName: player.name, isBot: player.isBot, cells, roundTotal };
+            return { playerId: player.id, playerName: player.name, isBot: Boolean(player.isBot), cells, roundTotal };
           });
 
           return { roundNumber, letter: upper, playerScores };
@@ -267,7 +341,7 @@
         }
 
         function pickNextLetter(usedLetters) {
-          const used = new Set(usedLetters.map((l) => l.toUpperCase()));
+          const used = new Set((usedLetters || []).map((l) => l.toUpperCase()));
           const avail = ALPHABET.filter((l) => !used.has(l));
           const pool = avail.length ? avail : ALPHABET;
           return pool[Math.floor(Math.random() * pool.length)];
@@ -306,15 +380,29 @@
         }
 
         // =====================================================================
-        // 4. STATE & CROSS-TAB REAL-TIME BROADCAST SYNC
+        // 5. STATE & FIREBASE FIRESTORE ONLINE MULTIPLAYER ENGINE
         // =====================================================================
         const BOT_NAMES = ["Kuttappan Bot", "Minnu Bot", "Appu Bot"];
-        const myClientId = "p_" + Math.random().toString(36).slice(2, 9);
-        const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("peru_sadhanam_sync_v1") : null;
+
+        function getOrCreateClientId() {
+          try {
+            const existing = sessionStorage.getItem("peru_sadhanam_client_id");
+            if (existing) return existing;
+            const created = "p_" + Math.random().toString(36).slice(2, 10);
+            sessionStorage.setItem("peru_sadhanam_client_id", created);
+            return created;
+          } catch {
+            return "p_" + Math.random().toString(36).slice(2, 10);
+          }
+        }
+        const myClientId = getOrCreateClientId();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialJoinCode = (urlParams.get("room") || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
 
         const state = {
-          phase: "title", // title | lobby | handoff | playing | results | gameover
-          mode: "solo",   // solo | pass_and_play | tab_sync
+          phase: "title", // title | lobby | handoff | playing | appeal | results | gameover
+          mode: initialJoinCode ? "online" : "solo", // solo | pass_and_play | online
           language: "bilingual",
           totalRounds: 3,
           timerSeconds: 60,
@@ -327,9 +415,10 @@
             { id: "lp_1", name: "Player 1" },
             { id: "lp_2", name: "Player 2" },
           ],
-          tabName: "Player 1",
-          joinCode: "",
-          tabError: "",
+          onlineName: "Player 1",
+          joinCode: initialJoinCode,
+          onlineError: firebaseInitError,
+          onlineBusy: false,
           // Active local session
           activePlayers: [],
           currentRound: 1,
@@ -342,13 +431,18 @@
           answers: createEmptyAnswers(),
           roundSubmissions: [],
           roundResults: [],
-          overrides: {},
-          // Cross-tab room state
-          room: null, // { roomCode, hostId, phase, players, currentRound, totalRounds, timerSeconds, timeLeft, targetLetter, letterMode, usedLetters, submissionsByPlayer, submittedIds, roundResults, overrides }
-          submittedTab: false,
+          appeals: {},
+          // Firebase Firestore Online Room state
+          room: null,
+          submittedOnline: false,
+          onlineTimeLeft: 60,
         };
 
         let timerInterval = null;
+        let roomUnsubscribe = null;
+        let draftSyncTimer = null;
+        let finalizingRoundFlag = false;
+        let lastUrgentSecond = -1;
 
         function stopTimer() {
           if (timerInterval) {
@@ -357,21 +451,109 @@
           }
         }
 
+        function detachRoomListener() {
+          if (roomUnsubscribe) {
+            roomUnsubscribe();
+            roomUnsubscribe = null;
+          }
+          if (draftSyncTimer) {
+            clearTimeout(draftSyncTimer);
+            draftSyncTimer = null;
+          }
+        }
+
+        function getOrderedRoomPlayers(room) {
+          if (!room) return [];
+          const list = Object.values(room.playersMap || {});
+          return list.sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+        }
+
+        function getOnlineSubmittedIds(room) {
+          if (!room || !room.submittedMap) return [];
+          return Object.keys(room.submittedMap).filter((id) => Boolean(room.submittedMap[id]));
+        }
+
+        function buildOnlineCurrentRoundResult(room) {
+          const players = getOrderedRoomPlayers(room);
+          const subs = players.map((p) => ({
+            player: p,
+            answers: (room.submissions && room.submissions[p.id]) || createEmptyAnswers(),
+          }));
+          return scoreRound(room.currentRound, room.targetLetter, subs, room.appeals || {});
+        }
+
+        function getOnlineAllRoundResults(room) {
+          if (!room) return [];
+          const hist = room.roundHistory || {};
+          const keys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+          const list = keys.map((k) => {
+            const entry = hist[String(k)];
+            const players = getOrderedRoomPlayers(room);
+            const subs = players.map((p) => ({
+              player: p,
+              answers: (entry.submissions && entry.submissions[p.id]) || createEmptyAnswers(),
+            }));
+            const appealsToUse = Number(k) === room.currentRound && (room.phase === "appeal" || room.phase === "results")
+              ? (room.appeals || entry.appeals || {})
+              : (entry.appeals || {});
+            return scoreRound(entry.roundNumber, entry.letter, subs, appealsToUse);
+          });
+
+          if ((room.phase === "appeal" || room.phase === "results") && !hist[String(room.currentRound)]) {
+            list.push(buildOnlineCurrentRoundResult(room));
+          }
+          return list;
+        }
+
+        function updateHudTimerOnly() {
+          const timerEl = document.getElementById("hud-timer-text");
+          const barEl = document.getElementById("hud-timer-bar");
+          const labelEl = document.getElementById("hud-timer-label");
+          const isOnline = state.mode === "online" && state.room;
+          const t = isOnline ? state.onlineTimeLeft : state.timeLeft;
+          const max = isOnline ? state.room.timerSeconds : state.timerSeconds;
+          if (!timerEl || !barEl || !labelEl) return;
+          const urgent = t <= 10;
+          timerEl.textContent = t + "s";
+          timerEl.className = "font-mono-tabular text-base font-bold " + (urgent ? "text-red-700" : "text-slate-900");
+          labelEl.textContent = urgent ? "Hurry" : "Time";
+          labelEl.className = urgent ? "text-red-700" : "text-slate-500";
+          barEl.style.width = Math.max(0, Math.min(100, (t / max) * 100)) + "%";
+          barEl.className = "h-full transition-[width] duration-300 " + (urgent ? "bg-red-600" : "bg-emerald-600");
+        }
+
         function startTimer() {
           stopTimer();
-          timerInterval = setInterval(() => {
-            if (state.mode === "tab_sync" && state.room) {
-              if (state.room.hostId !== myClientId || state.room.phase !== "playing") return;
-              state.room.timeLeft = Math.max(0, state.room.timeLeft - 1);
-              if (state.room.timeLeft > 0 && state.room.timeLeft <= 10) soundFx.playUrgentTick();
-              if (state.room.timeLeft <= 0) {
-                finalizeTabRoomRound();
-              } else {
-                broadcastRoom();
-                updateHudTimerOnly();
+          lastUrgentSecond = -1;
+
+          if (state.mode === "online" && state.room) {
+            timerInterval = setInterval(() => {
+              if (!state.room || state.room.phase !== "playing") {
+                stopTimer();
+                return;
               }
-              return;
-            }
+              const msLeft = Math.max(0, (state.room.roundEndsAt || 0) - Date.now());
+              const secs = Math.ceil(msLeft / 1000);
+              state.onlineTimeLeft = secs;
+              if (secs > 0 && secs <= 10 && lastUrgentSecond !== secs) {
+                lastUrgentSecond = secs;
+                soundFx.playUrgentTick();
+              }
+              updateHudTimerOnly();
+
+              if (secs <= 0 && !state.submittedOnline) {
+                submitOnlineSheet(true);
+              }
+
+              // Host moves room from playing -> appeal after everyone submits or slight grace buffer
+              if (state.room.hostId === myClientId && Date.now() >= (state.room.roundEndsAt || 0) + 1200) {
+                finalizeOnlineRoundToAppeal();
+              }
+            }, 250);
+            return;
+          }
+
+          timerInterval = setInterval(() => {
             if (state.phase !== "playing" || state.paused) return;
             state.timeLeft = Math.max(0, state.timeLeft - 1);
             if (state.timeLeft > 0 && state.timeLeft <= 10) soundFx.playUrgentTick();
@@ -383,103 +565,332 @@
           }, 1000);
         }
 
-        function updateHudTimerOnly() {
-          const timerEl = document.getElementById("hud-timer-text");
-          const barEl = document.getElementById("hud-timer-bar");
-          const labelEl = document.getElementById("hud-timer-label");
-          const t = state.mode === "tab_sync" && state.room ? state.room.timeLeft : state.timeLeft;
-          const max = state.mode === "tab_sync" && state.room ? state.room.timerSeconds : state.timerSeconds;
-          if (!timerEl || !barEl || !labelEl) return;
-          const urgent = t <= 10;
-          timerEl.textContent = t + "s";
-          timerEl.className = "font-mono-tabular text-base font-bold " + (urgent ? "text-red-700" : "text-slate-900");
-          labelEl.textContent = urgent ? "Hurry" : "Time";
-          labelEl.className = urgent ? "text-red-700" : "text-slate-500";
-          barEl.style.width = Math.max(0, Math.min(100, (t / max) * 100)) + "%";
-          barEl.className = "h-full transition-[width] duration-300 " + (urgent ? "bg-red-600" : "bg-emerald-600");
+        function formatFirebaseError(err, fallbackMsg) {
+          const code = err && err.code ? String(err.code) : "";
+          if (code === "permission-denied" || (err && /permission/i.test(err.message || ""))) {
+            return 'Firestore permission denied. In Firebase Console -> Firestore Database -> Rules, allow read/write access on the "rooms" collection.';
+          }
+          if (code === "unavailable" || code === "failed-precondition") {
+            return "Could not reach Firebase Firestore. Ensure Cloud Firestore is created in your Firebase project and you are online.";
+          }
+          return (err && err.message) || fallbackMsg;
         }
 
-        function broadcastRoom() {
-          if (bc && state.room) {
-            bc.postMessage({ type: "room:sync", room: state.room });
+        function subscribeToRoom(roomCode) {
+          detachRoomListener();
+          if (!db) return;
+          const roomRef = db.collection("rooms").doc(roomCode);
+
+          roomUnsubscribe = roomRef.onSnapshot(
+            (snap) => {
+              if (!snap.exists) {
+                stopTimer();
+                detachRoomListener();
+                state.room = null;
+                state.phase = "title";
+                state.onlineError = `Room "${roomCode}" was closed or does not exist.`;
+                render();
+                return;
+              }
+
+              const incoming = snap.data();
+              const prevPhase = state.room ? state.room.phase : "title";
+              const prevRound = state.room ? state.room.currentRound : 0;
+
+              state.room = incoming;
+              state.mode = "online";
+              state.phase = incoming.phase;
+              state.onlineError = "";
+
+              if (incoming.phase === "playing" && (prevPhase !== "playing" || prevRound !== incoming.currentRound)) {
+                finalizingRoundFlag = false;
+                state.answers = createEmptyAnswers();
+                state.submittedOnline = Boolean(incoming.submittedMap && incoming.submittedMap[myClientId]);
+                state.onlineTimeLeft = Math.max(0, Math.ceil(((incoming.roundEndsAt || 0) - Date.now()) / 1000));
+                soundFx.playStart();
+                startTimer();
+              } else if (incoming.phase === "playing") {
+                const nowSubmitted = Boolean(incoming.submittedMap && incoming.submittedMap[myClientId]);
+                if (nowSubmitted) state.submittedOnline = true;
+                if (!timerInterval) startTimer();
+
+                // Host checks if all players have submitted
+                const players = getOrderedRoomPlayers(incoming);
+                const submittedIds = getOnlineSubmittedIds(incoming);
+                if (incoming.hostId === myClientId && players.length > 0 && submittedIds.length >= players.length) {
+                  finalizeOnlineRoundToAppeal();
+                  return;
+                }
+
+                // Update waiting banner without blowing away input focus
+                if (document.getElementById("play-sheet-form")) {
+                  updateHudTimerOnly();
+                  const statusEl = document.getElementById("online-wait-status");
+                  if (statusEl) {
+                    statusEl.textContent = `Sheet submitted · Waiting for other players (${submittedIds.length}/${players.length})`;
+                  }
+                  return;
+                }
+              } else {
+                stopTimer();
+              }
+
+              if (incoming.phase === "appeal" && prevPhase === "playing") {
+                soundFx.playTimeUp();
+              }
+              if (incoming.phase === "gameover" && prevPhase !== "gameover") {
+                soundFx.playVictory();
+              }
+
+              render();
+            },
+            (err) => {
+              state.onlineError = formatFirebaseError(err, "Real-time room sync lost.");
+              render();
+            }
+          );
+        }
+
+        async function createOnlineRoom() {
+          if (!db) {
+            state.onlineError = firebaseInitError || "Firebase Firestore is not initialized.";
+            render();
+            return;
+          }
+          const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+          let code = "";
+          for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+          const name = state.onlineName.trim() || "Host";
+
+          state.onlineBusy = true;
+          state.onlineError = "";
+          render();
+
+          try {
+            const roomRef = db.collection("rooms").doc(code);
+            const payload = {
+              roomCode: code,
+              hostId: myClientId,
+              phase: "lobby",
+              totalRounds: state.totalRounds,
+              timerSeconds: state.timerSeconds,
+              letterMode: state.letterMode,
+              manualLetter: state.manualLetter,
+              usedLetters: [],
+              currentRound: 0,
+              targetLetter: state.manualLetter,
+              roundEndsAt: 0,
+              playersMap: {
+                [myClientId]: { id: myClientId, name, joinedAt: Date.now() },
+              },
+              submissions: {},
+              submittedMap: {},
+              appeals: {},
+              roundHistory: {},
+              createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+            };
+            await roomRef.set(payload);
+            state.onlineBusy = false;
+            state.room = payload;
+            state.phase = "lobby";
+            subscribeToRoom(code);
+            render();
+          } catch (err) {
+            state.onlineBusy = false;
+            state.onlineError = formatFirebaseError(err, "Failed to create room.");
+            render();
           }
         }
 
-        function finalizeTabRoomRound() {
-          if (!state.room) return;
-          stopTimer();
-          const subs = state.room.players.map((p) => ({
-            player: p,
-            answers: state.room.submissionsByPlayer[p.id] || createEmptyAnswers(),
-          }));
-          const res = scoreRound(state.room.currentRound, state.room.targetLetter, subs, state.room.overrides);
-          const idx = state.room.roundResults.findIndex((r) => r.roundNumber === res.roundNumber);
-          if (idx >= 0) state.room.roundResults[idx] = res;
-          else state.room.roundResults.push(res);
-          state.room.phase = "results";
-          soundFx.playTimeUp();
-          broadcastRoom();
+        async function joinOnlineRoom() {
+          if (!db) {
+            state.onlineError = firebaseInitError || "Firebase Firestore is not initialized.";
+            render();
+            return;
+          }
+          const code = state.joinCode.trim().toUpperCase();
+          if (!code) {
+            state.onlineError = "Enter a room code to join.";
+            render();
+            return;
+          }
+          const name = state.onlineName.trim() || "Player";
+
+          state.onlineBusy = true;
+          state.onlineError = "";
           render();
+
+          try {
+            const roomRef = db.collection("rooms").doc(code);
+            const snap = await roomRef.get();
+            if (!snap.exists) {
+              state.onlineBusy = false;
+              state.onlineError = `Room "${code}" not found. Check the code and try again.`;
+              render();
+              return;
+            }
+            const data = snap.data();
+            const existingPlayer = data.playersMap && data.playersMap[myClientId];
+            await roomRef.update({
+              [`playersMap.${myClientId}`]: {
+                id: myClientId,
+                name,
+                joinedAt: existingPlayer ? existingPlayer.joinedAt : Date.now(),
+              },
+            });
+            state.onlineBusy = false;
+            subscribeToRoom(code);
+          } catch (err) {
+            state.onlineBusy = false;
+            state.onlineError = formatFirebaseError(err, "Could not join room.");
+            render();
+          }
         }
 
-        if (bc) {
-          bc.onmessage = (ev) => {
-            const msg = ev.data || {};
-            if (msg.type === "room:find" && state.room && state.room.hostId === myClientId && msg.roomCode === state.room.roomCode) {
-              const joining = msg.player;
-              if (!state.room.players.some((p) => p.id === joining.id)) {
-                state.room.players.push(joining);
-                state.room.submissionsByPlayer[joining.id] = createEmptyAnswers();
-              }
-              broadcastRoom();
-              render();
-            } else if (msg.type === "room:sync" && msg.room) {
-              const incoming = msg.room;
-              const amInRoom = incoming.players.some((p) => p.id === myClientId);
-              if (amInRoom || (state.joinCode && incoming.roomCode === state.joinCode && !state.room)) {
-                const prevRound = state.room ? state.room.currentRound : 0;
-                const prevPhase = state.room ? state.room.phase : "lobby";
-                state.room = incoming;
-                state.mode = "tab_sync";
-                state.phase = incoming.phase;
-                state.tabError = "";
-                if (incoming.phase === "playing" && (prevPhase !== "playing" || prevRound !== incoming.currentRound)) {
-                  state.answers = createEmptyAnswers();
-                  state.submittedTab = false;
-                  soundFx.playStart();
-                }
-                if (incoming.phase === "gameover" && prevPhase !== "gameover") {
-                  soundFx.playVictory();
-                }
-                if (incoming.phase === "playing" && incoming.hostId !== myClientId) {
-                  // Guest uses host's timer updates via sync; just update HUD if already on playing screen
-                  if (document.getElementById("play-sheet-form")) {
-                    updateHudTimerOnly();
-                    const statusEl = document.getElementById("tab-wait-status");
-                    if (statusEl) {
-                      statusEl.textContent = `Sheet submitted · Waiting for other players (${incoming.submittedIds.length}/${incoming.players.length})`;
-                    }
-                    return;
-                  }
-                }
-                render();
-              }
-            } else if (msg.type === "room:draft" && state.room && state.room.hostId === myClientId && msg.roomCode === state.room.roomCode) {
-              state.room.submissionsByPlayer[msg.playerId] = msg.answers;
-              if (msg.submit && !state.room.submittedIds.includes(msg.playerId)) {
-                state.room.submittedIds.push(msg.playerId);
-                if (state.room.submittedIds.length >= state.room.players.length) {
-                  finalizeTabRoomRound();
-                } else {
-                  broadcastRoom();
-                }
-              }
+        async function startOnlineRound() {
+          if (!db || !state.room || state.room.hostId !== myClientId) return;
+          const r = state.room;
+          const letter = r.letterMode === "manual"
+            ? (state.manualLetter || r.targetLetter || "K").toUpperCase()
+            : pickNextLetter(r.usedLetters || []);
+          const nextRound = (r.currentRound || 0) + 1;
+          const used = (r.usedLetters || []).includes(letter) ? r.usedLetters : [...(r.usedLetters || []), letter];
+          const roundEndsAt = Date.now() + (r.timerSeconds || 60) * 1000;
+
+          try {
+            await db.collection("rooms").doc(r.roomCode).update({
+              phase: "playing",
+              currentRound: nextRound,
+              targetLetter: letter,
+              usedLetters: used,
+              roundEndsAt,
+              submissions: {},
+              submittedMap: {},
+              appeals: {},
+            });
+          } catch (err) {
+            state.onlineError = formatFirebaseError(err, "Failed to start round.");
+            render();
+          }
+        }
+
+        async function submitOnlineSheet(isTimeout = false) {
+          if (!db || !state.room || state.submittedOnline) return;
+          state.submittedOnline = true;
+          if (isTimeout) soundFx.playTimeUp();
+          else soundFx.playSubmit();
+
+          const r = state.room;
+          try {
+            await db.collection("rooms").doc(r.roomCode).update({
+              [`submissions.${myClientId}`]: { ...state.answers },
+              [`submittedMap.${myClientId}`]: true,
+            });
+            render();
+          } catch (err) {
+            state.submittedOnline = false;
+            state.onlineError = formatFirebaseError(err, "Failed to submit sheet.");
+            render();
+          }
+        }
+
+        async function finalizeOnlineRoundToAppeal() {
+          if (!db || !state.room || state.room.hostId !== myClientId || finalizingRoundFlag) return;
+          if (state.room.phase !== "playing") return;
+          finalizingRoundFlag = true;
+          stopTimer();
+
+          try {
+            await db.collection("rooms").doc(state.room.roomCode).update({
+              phase: "appeal",
+            });
+          } catch (err) {
+            finalizingRoundFlag = false;
+            state.onlineError = formatFirebaseError(err, "Failed to transition to Appeal & Review.");
+            render();
+          }
+        }
+
+        async function setOnlineAppeal(playerId, catId, decision) {
+          if (!db || !state.room) return;
+          const r = state.room;
+          const myPlayer = r.playersMap && r.playersMap[myClientId];
+          const myName = (myPlayer && myPlayer.name) || state.onlineName || "Player";
+          const key = getAppealKey(playerId, catId);
+
+          const updatePayload = {};
+          if (decision === "auto") {
+            updatePayload[`appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
+            if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
+              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
             }
-          };
+          } else {
+            const val = { decision, by: myName };
+            updatePayload[`appeals.${key}`] = val;
+            if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
+              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = val;
+            }
+          }
+
+          try {
+            await db.collection("rooms").doc(r.roomCode).update(updatePayload);
+          } catch (err) {
+            state.onlineError = formatFirebaseError(err, "Failed to update appeal.");
+            render();
+          }
+        }
+
+        async function confirmOnlineAppeals() {
+          if (!db || !state.room || state.room.hostId !== myClientId) return;
+          const r = state.room;
+          try {
+            await db.collection("rooms").doc(r.roomCode).update({
+              phase: "results",
+              [`roundHistory.${r.currentRound}`]: {
+                roundNumber: r.currentRound,
+                letter: r.targetLetter,
+                submissions: r.submissions || {},
+                appeals: r.appeals || {},
+              },
+            });
+          } catch (err) {
+            state.onlineError = formatFirebaseError(err, "Failed to lock round scores.");
+            render();
+          }
+        }
+
+        async function reopenOnlineAppeal() {
+          if (!db || !state.room || state.room.hostId !== myClientId) return;
+          try {
+            await db.collection("rooms").doc(state.room.roomCode).update({ phase: "appeal" });
+          } catch (err) {
+            state.onlineError = formatFirebaseError(err, "Failed to reopen Appeal & Review.");
+            render();
+          }
+        }
+
+        async function leaveOnlineRoom() {
+          const r = state.room;
+          stopTimer();
+          detachRoomListener();
+          state.room = null;
+          state.submittedOnline = false;
+          state.phase = "title";
+          render();
+
+          if (db && r && r.phase === "lobby" && r.hostId !== myClientId) {
+            try {
+              await db.collection("rooms").doc(r.roomCode).update({
+                [`playersMap.${myClientId}`]: window.firebase.firestore.FieldValue.delete(),
+              });
+            } catch {
+              // Ignore cleanup errors on exit
+            }
+          }
         }
 
         // =====================================================================
-        // 5. ACTIONS
+        // 6. LOCAL GAME ACTIONS (SOLO & PASS-AND-PLAY)
         // =====================================================================
         function startLocalGame() {
           const roster =
@@ -510,7 +921,7 @@
           if (!state.usedLetters.includes(letter)) state.usedLetters.push(letter);
           state.turnIndex = 0;
           state.roundSubmissions = [];
-          state.overrides = {};
+          state.appeals = {};
           state.answers = createEmptyAnswers();
           state.timeLeft = state.timerSeconds;
           state.paused = false;
@@ -551,61 +962,23 @@
             .map((bot) => ({ player: bot, answers: pickBotAnswers(state.targetLetter, state.botDifficulty) }));
 
           state.roundSubmissions = [...state.roundSubmissions, ...botSubs];
-          const scored = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.overrides);
-          state.roundResults.push(scored);
-          state.phase = "results";
+          const scored = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.appeals);
+          state.roundResults = [...state.roundResults.filter((r) => r.roundNumber !== state.currentRound), scored];
+          state.phase = "appeal";
           render();
         }
 
-        function createTabRoom() {
-          const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-          let code = "";
-          for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
-          const name = state.tabName.trim() || "Host";
-          state.room = {
-            roomCode: code,
-            hostId: myClientId,
-            phase: "lobby",
-            players: [{ id: myClientId, name }],
-            currentRound: 0,
-            totalRounds: state.totalRounds,
-            timerSeconds: state.timerSeconds,
-            timeLeft: state.timerSeconds,
-            targetLetter: state.manualLetter,
-            letterMode: state.letterMode,
-            usedLetters: [],
-            submissionsByPlayer: { [myClientId]: createEmptyAnswers() },
-            submittedIds: [],
-            roundResults: [],
-            overrides: {},
-          };
-          state.phase = "lobby";
-          state.tabError = "";
-          broadcastRoom();
+        function setLocalAppeal(playerId, catId, decision) {
+          const existing = getAppealEntry(state.appeals, playerId, catId).decision;
+          const nextDecision = existing === decision ? "auto" : decision;
+          state.appeals = setAppealInMap(state.appeals, playerId, catId, nextDecision, "");
+          const updated = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.appeals);
+          state.roundResults = state.roundResults.map((r) => (r.roundNumber === state.currentRound ? updated : r));
           render();
-        }
-
-        function joinTabRoom() {
-          const code = state.joinCode.trim().toUpperCase();
-          if (!code) return;
-          const name = state.tabName.trim() || "Player";
-          state.tabError = "";
-          if (bc) {
-            bc.postMessage({ type: "room:find", roomCode: code, player: { id: myClientId, name } });
-            setTimeout(() => {
-              if (!state.room) {
-                state.tabError = `No open tab found for Room "${code}". Open another tab on this browser first.`;
-                render();
-              }
-            }, 600);
-          } else {
-            state.tabError = "Cross-tab BroadcastChannel is unavailable in this browser.";
-            render();
-          }
         }
 
         // =====================================================================
-        // 6. VIEW RENDERERS
+        // 7. VIEW RENDERERS
         // =====================================================================
         function renderTitle() {
           const modeTab = (id, label) => `
@@ -671,26 +1044,28 @@
             modePanel = `
               <div class="space-y-4 border-t border-slate-100 pt-5">
                 <div>
-                  <label for="tab-name" class="block text-sm font-semibold text-slate-800">Your Display Name</label>
-                  <input id="tab-name" type="text" maxlength="24" value="${escapeHtml(state.tabName)}"
+                  <label for="online-name" class="block text-sm font-semibold text-slate-800">Your Display Name</label>
+                  <input id="online-name" type="text" maxlength="24" value="${escapeHtml(state.onlineName)}"
                     class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20" />
                 </div>
-                ${state.tabError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.tabError)}</p>` : ""}
+                ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
                 <div class="grid gap-3 sm:grid-cols-2">
-                  <button type="button" data-action="create-tab-room"
-                    class="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">
-                    Create Tab Room
+                  <button type="button" data-action="create-online-room" ${state.onlineBusy ? "disabled" : ""}
+                    class="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+                    ${state.onlineBusy ? "Connecting..." : "Create Online Room"}
                   </button>
                   <div class="flex gap-2">
                     <input id="join-code" type="text" maxlength="6" placeholder="CODE" value="${escapeHtml(state.joinCode)}"
                       class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center font-mono-tabular text-sm font-bold uppercase tracking-widest focus:border-emerald-600 focus:outline-none" />
-                    <button type="button" data-action="join-tab-room"
-                      class="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+                    <button type="button" data-action="join-online-room" ${state.onlineBusy ? "disabled" : ""}
+                      class="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50">
                       Join
                     </button>
                   </div>
                 </div>
-                <p class="text-xs text-slate-500">Open this HTML file in multiple tabs on the same browser to sync rooms in real time.</p>
+                <p class="text-xs text-slate-500">
+                  Play across phones, tablets, or laptops in real time via Firebase Firestore (${escapeHtml(firebaseConfig.projectId)}).
+                </p>
               </div>`;
           }
 
@@ -735,7 +1110,7 @@
                       <div class="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1">
                         ${modeTab("solo", "Solo vs Bot")}
                         ${modeTab("pass_and_play", "Pass & Play")}
-                        ${modeTab("tab_sync", "Tab Sync")}
+                        ${modeTab("online", "Online Room")}
                       </div>
                     </div>
                     ${modePanel}
@@ -778,7 +1153,7 @@
                         </div>` : ""}
                     </div>
 
-                    ${state.mode !== "tab_sync" ? `
+                    ${state.mode !== "online" ? `
                       <button type="button" data-action="start-local"
                         class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors">
                         Start Game
@@ -794,36 +1169,45 @@
 
         function renderLobby() {
           const r = state.room;
+          const players = getOrderedRoomPlayers(r);
           const isHost = r.hostId === myClientId;
           return `
             <main class="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
               <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 space-y-6">
                 <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
                   <div>
-                    <p class="text-xs font-semibold text-emerald-700">Live Tab Room Sync</p>
+                    <p class="text-xs font-semibold text-emerald-700">Online Multiplayer · Firebase Firestore</p>
                     <h1 class="mt-1 font-display text-2xl font-extrabold text-slate-900">Room ${escapeHtml(r.roomCode)}</h1>
-                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">${r.totalRounds} rounds · ${r.timerSeconds}s per round</p>
+                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">${r.totalRounds} rounds · ${r.timerSeconds}s per round · ${r.letterMode === "manual" ? `Starting: ${escapeHtml(r.manualLetter || r.targetLetter || "K")}` : "Random letter"}</p>
                   </div>
-                  <button type="button" data-action="copy-room-code"
-                    class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                    Copy Code
-                  </button>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" data-action="copy-room-code"
+                      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Copy Code
+                    </button>
+                    <button type="button" data-action="copy-invite-link"
+                      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Copy Invite Link
+                    </button>
+                  </div>
                 </div>
+                ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
                 <div>
-                  <h2 class="text-sm font-bold text-slate-800">Connected Players (${r.players.length})</h2>
+                  <h2 class="text-sm font-bold text-slate-800">Connected Players (${players.length})</h2>
                   <ul class="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                    ${r.players.map((p) => `
+                    ${players.map((p) => `
                       <li class="flex items-center justify-between px-4 py-2.5 text-sm">
                         <span class="font-semibold text-slate-900">${escapeHtml(p.name)}${p.id === myClientId ? " (You)" : ""}</span>
-                        <span class="text-xs font-medium text-slate-500">${p.id === r.hostId ? "Host" : "Player"}</span>
+                        <span class="text-xs font-medium ${p.id === r.hostId ? "text-emerald-700 font-semibold" : "text-slate-500"}">${p.id === r.hostId ? "Host" : "Player"}</span>
                       </li>`).join("")}
                   </ul>
+                  <p class="mt-2 text-xs text-slate-500">Share code <span class="font-mono-tabular font-bold text-slate-800">${escapeHtml(r.roomCode)}</span> with friends on any device to join this lobby.</p>
                 </div>
                 <div class="flex flex-col gap-3 sm:flex-row">
                   ${isHost
-                    ? `<button type="button" data-action="start-tab-round" class="flex-1 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Start Round 1</button>`
-                    : `<div class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-slate-600">Waiting for host to start...</div>`}
-                  <button type="button" data-action="exit-menu" class="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Leave</button>
+                    ? `<button type="button" data-action="start-online-round" class="flex-1 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Start Round 1</button>`
+                    : `<div class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-slate-600">Waiting for host to start Round 1...</div>`}
+                  <button type="button" data-action="leave-online-room" class="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Leave Room</button>
                 </div>
               </section>
             </main>`;
@@ -857,15 +1241,17 @@
         }
 
         function renderPlaying() {
-          const isTab = state.mode === "tab_sync" && state.room;
-          const letter = isTab ? state.room.targetLetter : state.targetLetter;
-          const round = isTab ? state.room.currentRound : state.currentRound;
-          const totalRounds = isTab ? state.room.totalRounds : state.totalRounds;
-          const timeLeft = isTab ? state.room.timeLeft : state.timeLeft;
-          const maxSec = isTab ? state.room.timerSeconds : state.timerSeconds;
-          const playerName = isTab
-            ? (state.room.players.find((p) => p.id === myClientId) || {}).name
-            : (state.activePlayers.filter((p) => !p.isBot)[state.turnIndex] || {}).name;
+          const isOnline = state.mode === "online" && state.room;
+          const letter = isOnline ? state.room.targetLetter : state.targetLetter;
+          const round = isOnline ? state.room.currentRound : state.currentRound;
+          const totalRounds = isOnline ? state.room.totalRounds : state.totalRounds;
+          const timeLeft = isOnline ? state.onlineTimeLeft : state.timeLeft;
+          const maxSec = isOnline ? state.room.timerSeconds : state.timerSeconds;
+          const players = isOnline ? getOrderedRoomPlayers(state.room) : [];
+          const submittedIds = isOnline ? getOnlineSubmittedIds(state.room) : [];
+          const playerName = isOnline
+            ? ((state.room.playersMap && state.room.playersMap[myClientId] && state.room.playersMap[myClientId].name) || state.onlineName)
+            : ((state.activePlayers.filter((p) => !p.isBot)[state.turnIndex] || {}).name);
 
           const ratio = maxSec > 0 ? Math.max(0, Math.min(100, (timeLeft / maxSec) * 100)) : 0;
           const urgent = timeLeft <= 10;
@@ -878,7 +1264,7 @@
                   <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-700 font-display text-2xl font-extrabold text-white">${letter}</div>
                   <div class="min-w-0">
                     <div class="text-xs font-semibold text-slate-500 font-mono-tabular">
-                      Round ${round} of ${totalRounds}${isTab ? ` · Room ${escapeHtml(state.room.roomCode)}` : ""}
+                      Round ${round} of ${totalRounds}${isOnline ? ` · Room ${escapeHtml(state.room.roomCode)}` : ""}
                     </div>
                     <p class="truncate text-sm font-bold text-slate-900">${escapeHtml(playerName || "Player")}'s Sheet</p>
                   </div>
@@ -897,7 +1283,7 @@
                     class="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                     ${soundFx.isMuted() ? "Unmute" : "Mute"}
                   </button>
-                  ${!isTab ? `
+                  ${!isOnline ? `
                     <button type="button" data-action="toggle-pause"
                       class="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                       Pause
@@ -920,6 +1306,8 @@
                 </button>
               </div>
 
+              ${state.onlineError ? `<p class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
+
               <form id="play-sheet-form" class="notebook-paper rounded-xl border border-slate-200 p-5 shadow-sm sm:p-7 space-y-5">
                 ${CATEGORIES.map((cat, idx) => {
                   const val = state.answers[cat.id];
@@ -941,7 +1329,7 @@
                         }">${showOk || showErr ? escapeHtml(v.message) : ""}</span>
                       </div>
                       <input id="cat-${cat.id}" data-cat="${cat.id}" data-idx="${idx}" type="text" autocomplete="off"
-                        ${state.submittedTab ? "disabled" : ""}
+                        ${state.submittedOnline ? "disabled" : ""}
                         value="${escapeHtml(val)}"
                         placeholder="${escapeHtml(state.language === "malayalam" ? cat.placeholderMl : cat.placeholderEn)}"
                         class="cat-input mt-2 w-full rounded-lg border px-3.5 py-2.5 text-base font-medium text-slate-900 focus:outline-none focus:ring-2 ${
@@ -951,7 +1339,7 @@
                               ? "border-emerald-400 bg-emerald-50/20 focus:border-emerald-600 focus:ring-emerald-600/20"
                               : "border-slate-300 bg-white focus:border-emerald-600 focus:ring-emerald-600/20"
                         }" />
-                      ${pool.length && !state.submittedTab ? `
+                      ${pool.length && !state.submittedOnline ? `
                         <div class="mt-2 flex flex-wrap items-center gap-1.5">
                           <span class="text-xs text-slate-400">Try:</span>
                           ${pool.map((w) => `
@@ -962,9 +1350,9 @@
                 }).join("")}
 
                 <div class="pt-2">
-                  ${state.submittedTab
-                    ? `<div id="tab-wait-status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-900">
-                         Sheet submitted · Waiting for other players (${state.room.submittedIds.length}/${state.room.players.length})
+                  ${state.submittedOnline
+                    ? `<div id="online-wait-status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-900">
+                         Sheet submitted · Waiting for other players (${submittedIds.length}/${players.length})
                        </div>`
                     : `<button type="submit" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors">Submit Sheet</button>`}
                 </div>
@@ -987,13 +1375,124 @@
               </div>` : ""}`;
         }
 
+        function renderAppeal() {
+          const isOnline = state.mode === "online" && state.room;
+          const result = isOnline
+            ? buildOnlineCurrentRoundResult(state.room)
+            : state.roundResults[state.roundResults.length - 1];
+          const totalRounds = isOnline ? state.room.totalRounds : state.totalRounds;
+          const canConfirm = !isOnline || state.room.hostId === myClientId;
+
+          const appealCount = result.playerScores.reduce((acc, ps) => {
+            return acc + CATEGORIES.filter((cat) => ps.cells[cat.id].appealDecision !== "auto").length;
+          }, 0);
+
+          return `
+            <main class="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10 space-y-7">
+              <section class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-center gap-4">
+                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-600 font-display text-2xl font-extrabold text-white">${result.letter}</div>
+                  <div>
+                    <p class="text-xs font-semibold text-amber-700">അപ്പീൽ സിസ്റ്റം · Round ${result.roundNumber} of ${totalRounds}</p>
+                    <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal & Review Answers</h1>
+                    <p class="mt-0.5 text-sm text-slate-600">Inspect every player's words for letter "${result.letter}". Approve or mark incorrect before locking scores.</p>
+                  </div>
+                </div>
+                <div class="text-xs font-semibold text-slate-600 font-mono-tabular shrink-0">
+                  ${appealCount} ${appealCount === 1 ? "appeal" : "appeals"} applied
+                </div>
+              </section>
+
+              ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
+
+              <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table class="w-full min-w-[680px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr class="border-b border-slate-200 bg-slate-50">
+                      <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
+                      ${result.playerScores.map((ps) => `
+                        <th class="px-4 py-3.5 font-bold text-slate-900">
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="truncate">${escapeHtml(ps.playerName)}</span>
+                            <span class="font-mono-tabular text-xs font-bold text-emerald-700">${ps.roundTotal} pts</span>
+                          </div>
+                        </th>`).join("")}
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${CATEGORIES.map((cat) => {
+                      const lbl = formatCatLabel(cat);
+                      return `
+                        <tr class="hover:bg-slate-50/40">
+                          <td class="px-4 py-4 align-top font-semibold text-slate-800">
+                            <div>${escapeHtml(lbl.primary)}</div>
+                            ${lbl.secondary ? `<div class="text-xs font-normal text-slate-500">${escapeHtml(lbl.secondary)}</div>` : ""}
+                          </td>
+                          ${result.playerScores.map((ps) => {
+                            const c = ps.cells[cat.id];
+                            const hasWord = c.raw.trim().length > 0;
+                            const isValidNow = c.points > 0;
+                            const isOverridden = c.appealDecision !== "auto";
+                            const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
+
+                            return `
+                              <td class="px-4 py-4 align-top">
+                                <div class="space-y-2">
+                                  <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                      <p class="font-semibold break-words ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
+                                      <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
+                                    </div>
+                                    <span class="font-mono-tabular text-xs font-bold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
+                                  </div>
+                                  ${hasWord ? `
+                                    <div class="flex items-center gap-1.5 pt-0.5">
+                                      <div class="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Appeal decision for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="approved"
+                                          class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${isValidNow ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-emerald-800"}">
+                                          Approve
+                                        </button>
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="rejected"
+                                          class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${!isValidNow ? "bg-white text-red-700 shadow-sm" : "text-slate-600 hover:text-red-700"}">
+                                          Mark Incorrect
+                                        </button>
+                                      </div>
+                                      ${isOverridden ? `
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
+                                          class="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
+                                          Reset
+                                        </button>` : ""}
+                                    </div>` : ""}
+                                </div>
+                              </td>`;
+                          }).join("")}
+                        </tr>`;
+                    }).join("")}
+                  </tbody>
+                </table>
+              </section>
+
+              <section class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-xs text-slate-600 space-y-0.5">
+                  <p class="font-semibold text-slate-800">Live Scoring Rules (Updated Automatically)</p>
+                  <p>10 pts unique valid word · 5 pts duplicate valid word · 0 pts blank, invalid, or wrong letter</p>
+                </div>
+                ${canConfirm
+                  ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shrink-0">Confirm Scores & Continue →</button>`
+                  : `<p class="text-sm font-medium text-slate-600">Waiting for room host to confirm final scores...</p>`}
+              </section>
+            </main>`;
+        }
+
         function renderResults() {
-          const isTab = state.mode === "tab_sync" && state.room;
-          const players = isTab ? state.room.players : state.activePlayers;
-          const resultsList = isTab ? state.room.roundResults : state.roundResults;
+          const isOnline = state.mode === "online" && state.room;
+          const players = isOnline ? getOrderedRoomPlayers(state.room) : state.activePlayers;
+          const resultsList = isOnline ? getOnlineAllRoundResults(state.room) : state.roundResults;
           const result = resultsList[resultsList.length - 1];
-          const totalRounds = isTab ? state.room.totalRounds : state.totalRounds;
-          const canModerate = !isTab || state.room.hostId === myClientId;
+          const totalRounds = isOnline ? state.room.totalRounds : state.totalRounds;
+          const letterMode = isOnline ? state.room.letterMode : state.letterMode;
+          const usedLetters = isOnline ? (state.room.usedLetters || []) : state.usedLetters;
+          const canModerate = !isOnline || state.room.hostId === myClientId;
           const standings = calculateStandings(players, resultsList);
           const isFinal = result.roundNumber >= totalRounds;
 
@@ -1035,8 +1534,9 @@
                           </td>
                           ${result.playerScores.map((ps) => {
                             const c = ps.cells[cat.id];
+                            const hasWord = c.raw.trim().length > 0;
+                            const isValidNow = c.points > 0;
                             const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
-                            const canVeto = canModerate && c.raw.trim().length > 0 && c.status !== "wrong_letter";
                             return `
                               <td class="px-4 py-3.5 align-top">
                                 <div class="flex items-start justify-between gap-2">
@@ -1046,10 +1546,10 @@
                                   </div>
                                   <div class="flex flex-col items-end gap-1 shrink-0">
                                     <span class="font-mono-tabular text-xs font-bold ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
-                                    ${canVeto ? `
-                                      <button type="button" data-action="toggle-veto" data-pid="${ps.playerId}" data-cat="${cat.id}"
-                                        class="text-[11px] font-semibold underline ${c.overriddenInvalid ? "text-emerald-700" : "text-slate-500 hover:text-slate-800"}">
-                                        ${c.overriddenInvalid ? "Accept" : "Veto"}
+                                    ${canModerate && hasWord ? `
+                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="${isValidNow ? "rejected" : "approved"}"
+                                        class="text-[11px] font-semibold underline ${isValidNow ? "text-slate-500 hover:text-slate-800" : "text-emerald-700"}">
+                                        ${isValidNow ? "Mark Incorrect" : "Approve"}
                                       </button>` : ""}
                                   </div>
                                 </div>
@@ -1079,11 +1579,23 @@
                   </div>
                 </section>
 
-                <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-5 space-y-3">
+                <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-5 space-y-4">
+                  ${!isFinal && canModerate && letterMode === "manual" ? `
+                    <div>
+                      <span class="block text-xs font-semibold text-slate-600">Pick Next Round Letter</span>
+                      <div class="mt-2 grid grid-cols-7 gap-1">
+                        ${ALPHABET.map((l) => `
+                          <button type="button" data-action="set-manual-letter" data-letter="${l}"
+                            class="h-7 rounded font-display text-xs font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${l}</button>`).join("")}
+                      </div>
+                    </div>` : ""}
+
                   ${canModerate
                     ? isFinal
-                      ? `<button type="button" data-action="finish-game" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">View Final Winner Podium</button>`
+                      ? `<button type="button" data-action="finish-game" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">View Final Winner Podium</button>
+                         <button type="button" data-action="reopen-appeal" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">Reopen Appeal & Review</button>`
                       : `<button type="button" data-action="next-round" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Start Round ${result.roundNumber + 1}</button>
+                         <button type="button" data-action="reopen-appeal" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">Reopen Appeal & Review</button>
                          <button type="button" data-action="finish-game" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">End Match Early & Show Podium</button>`
                     : `<p class="text-center text-sm font-medium text-slate-600">Waiting for host to advance...</p>`}
                 </section>
@@ -1092,9 +1604,9 @@
         }
 
         function renderPodium() {
-          const isTab = state.mode === "tab_sync" && state.room;
-          const players = isTab ? state.room.players : state.activePlayers;
-          const resultsList = isTab ? state.room.roundResults : state.roundResults;
+          const isOnline = state.mode === "online" && state.room;
+          const players = isOnline ? getOrderedRoomPlayers(state.room) : state.activePlayers;
+          const resultsList = isOnline ? getOnlineAllRoundResults(state.room) : state.roundResults;
           const standings = calculateStandings(players, resultsList);
           const winners = standings.filter((s) => s.rank === 1);
           const winner = winners[0];
@@ -1149,34 +1661,36 @@
               </section>
 
               <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
-                ${(!isTab || state.room.hostId === myClientId) ? `<button type="button" data-action="play-again" class="rounded-lg bg-emerald-700 px-6 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Play Again</button>` : ""}
-                <button type="button" data-action="exit-menu" class="rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Main Menu</button>
+                ${(!isOnline || state.room.hostId === myClientId) ? `<button type="button" data-action="play-again" class="rounded-lg bg-emerald-700 px-6 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Play Again</button>` : ""}
+                <button type="button" data-action="${isOnline ? "leave-online-room" : "exit-menu"}" class="rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Main Menu</button>
               </div>
             </main>`;
         }
 
         function render() {
+          document.body.dataset.state = state.paused && state.phase === "playing" ? "paused" : state.phase;
           const root = document.getElementById("app");
           if (state.phase === "title") root.innerHTML = renderTitle();
           else if (state.phase === "lobby") root.innerHTML = renderLobby();
           else if (state.phase === "handoff") root.innerHTML = renderHandoff();
           else if (state.phase === "playing") root.innerHTML = renderPlaying();
+          else if (state.phase === "appeal") root.innerHTML = renderAppeal();
           else if (state.phase === "results") root.innerHTML = renderResults();
           else if (state.phase === "gameover") root.innerHTML = renderPodium();
 
-          if (state.phase === "playing" && !state.paused && !state.submittedTab) {
+          if (state.phase === "playing" && !state.paused && !state.submittedOnline) {
             const first = document.getElementById("cat-name");
             if (first && document.activeElement === document.body) first.focus();
           }
         }
 
         // =====================================================================
-        // 7. EVENT DELEGATION
+        // 8. EVENT DELEGATION
         // =====================================================================
         document.addEventListener("input", (e) => {
           const t = e.target;
           if (t.id === "solo-name") { state.soloName = t.value; return; }
-          if (t.id === "tab-name") { state.tabName = t.value; return; }
+          if (t.id === "online-name") { state.onlineName = t.value; return; }
           if (t.id === "join-code") { state.joinCode = t.value.toUpperCase(); return; }
           if (t.classList.contains("local-player-input")) {
             const pid = t.dataset.playerId;
@@ -1187,7 +1701,7 @@
           if (t.classList.contains("cat-input")) {
             const cat = t.dataset.cat;
             state.answers[cat] = t.value;
-            const letter = state.mode === "tab_sync" && state.room ? state.room.targetLetter : state.targetLetter;
+            const letter = state.mode === "online" && state.room ? state.room.targetLetter : state.targetLetter;
             const v = validateWordForLetter(t.value, letter, cat);
             const showErr = t.value.trim().length > 0 && !v.valid;
             const showOk = t.value.trim().length > 0 && v.valid;
@@ -1206,9 +1720,16 @@
               const ready = CATEGORIES.filter((c) => validateWordForLetter(state.answers[c.id], letter, c.id).valid).length;
               readyEl.textContent = ready + "/5 ready";
             }
-            if (state.mode === "tab_sync" && state.room && bc) {
-              if (state.room.hostId === myClientId) state.room.submissionsByPlayer[myClientId] = { ...state.answers };
-              else bc.postMessage({ type: "room:draft", roomCode: state.room.roomCode, playerId: myClientId, answers: state.answers, submit: false });
+
+            if (state.mode === "online" && state.room && db && !state.submittedOnline) {
+              if (draftSyncTimer) clearTimeout(draftSyncTimer);
+              const roomCode = state.room.roomCode;
+              const snapshot = { ...state.answers };
+              draftSyncTimer = setTimeout(() => {
+                db.collection("rooms").doc(roomCode).update({
+                  [`submissions.${myClientId}`]: snapshot,
+                }).catch(() => {});
+              }, 350);
             }
           }
         });
@@ -1225,7 +1746,7 @@
             }
             return;
           }
-          if (e.key === "Escape" && state.phase === "playing" && state.mode !== "tab_sync") {
+          if (e.key === "Escape" && state.phase === "playing" && state.mode !== "online") {
             state.paused = !state.paused;
             render();
           }
@@ -1234,31 +1755,20 @@
         document.addEventListener("submit", (e) => {
           if (e.target.id === "play-sheet-form") {
             e.preventDefault();
-            if (state.mode === "tab_sync" && state.room) {
-              if (state.submittedTab) return;
-              state.submittedTab = true;
-              soundFx.playSubmit();
-              if (state.room.hostId === myClientId) {
-                state.room.submissionsByPlayer[myClientId] = { ...state.answers };
-                if (!state.room.submittedIds.includes(myClientId)) state.room.submittedIds.push(myClientId);
-                if (state.room.submittedIds.length >= state.room.players.length) finalizeTabRoomRound();
-                else { broadcastRoom(); render(); }
-              } else if (bc) {
-                bc.postMessage({ type: "room:draft", roomCode: state.room.roomCode, playerId: myClientId, answers: state.answers, submit: true });
-                render();
-              }
+            if (state.mode === "online" && state.room) {
+              submitOnlineSheet(false);
             } else {
               submitLocalTurn(false);
             }
           }
         });
 
-        document.addEventListener("click", (e) => {
+        document.addEventListener("click", async (e) => {
           const btn = e.target.closest("[data-action]");
           if (!btn) return;
           const act = btn.dataset.action;
 
-          if (act === "set-mode") { state.mode = btn.dataset.mode; state.tabError = ""; render(); }
+          if (act === "set-mode") { state.mode = btn.dataset.mode; state.onlineError = firebaseInitError; render(); }
           else if (act === "set-lang") { state.language = btn.dataset.lang; render(); }
           else if (act === "set-bot-count") { state.botCount = Number(btn.dataset.count); render(); }
           else if (act === "set-bot-skill") { state.botDifficulty = btn.dataset.skill; render(); }
@@ -1275,30 +1785,20 @@
             render();
           }
           else if (act === "start-local") { startLocalGame(); }
-          else if (act === "create-tab-room") { createTabRoom(); }
-          else if (act === "join-tab-room") { joinTabRoom(); }
+          else if (act === "create-online-room") { createOnlineRoom(); }
+          else if (act === "join-online-room") { joinOnlineRoom(); }
           else if (act === "copy-room-code" && state.room) {
             navigator.clipboard?.writeText(state.room.roomCode).catch(() => {});
-            btn.textContent = "Copied";
+            btn.textContent = "Copied!";
           }
-          else if (act === "start-tab-round" && state.room) {
-            const letter = state.room.letterMode === "manual" ? state.manualLetter : pickNextLetter(state.room.usedLetters);
-            state.room.currentRound += 1;
-            state.room.targetLetter = letter;
-            if (!state.room.usedLetters.includes(letter)) state.room.usedLetters.push(letter);
-            state.room.timeLeft = state.room.timerSeconds;
-            state.room.submittedIds = [];
-            state.room.overrides = {};
-            state.room.players.forEach((p) => (state.room.submissionsByPlayer[p.id] = createEmptyAnswers()));
-            state.room.phase = "playing";
-            state.phase = "playing";
-            state.answers = createEmptyAnswers();
-            state.submittedTab = false;
-            soundFx.playStart();
-            broadcastRoom();
-            startTimer();
-            render();
+          else if (act === "copy-invite-link" && state.room) {
+            const url = new URL(window.location.href);
+            url.searchParams.set("room", state.room.roomCode);
+            navigator.clipboard?.writeText(url.toString()).catch(() => {});
+            btn.textContent = "Link Copied!";
           }
+          else if (act === "start-online-round") { startOnlineRound(); }
+          else if (act === "leave-online-room") { leaveOnlineRoom(); }
           else if (act === "reveal-handoff") {
             state.phase = "playing";
             soundFx.playStart();
@@ -1316,46 +1816,42 @@
           else if (act === "toggle-hints") { state.hintsEnabled = !state.hintsEnabled; render(); }
           else if (act === "pick-hint") {
             state.answers[btn.dataset.cat] = btn.dataset.word;
-            render();
-          }
-          else if (act === "toggle-veto") {
-            const pid = btn.dataset.pid;
-            const cat = btn.dataset.cat;
-            if (state.mode === "tab_sync" && state.room) {
-              state.room.overrides[pid] = state.room.overrides[pid] || {};
-              state.room.overrides[pid][cat] = !state.room.overrides[pid][cat];
-              const subs = state.room.players.map((p) => ({ player: p, answers: state.room.submissionsByPlayer[p.id] || createEmptyAnswers() }));
-              const updated = scoreRound(state.room.currentRound, state.room.targetLetter, subs, state.room.overrides);
-              const idx = state.room.roundResults.findIndex((r) => r.roundNumber === updated.roundNumber);
-              if (idx >= 0) state.room.roundResults[idx] = updated;
-              broadcastRoom();
-            } else {
-              state.overrides[pid] = state.overrides[pid] || {};
-              state.overrides[pid][cat] = !state.overrides[pid][cat];
-              const updated = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.overrides);
-              state.roundResults = state.roundResults.map((r) => (r.roundNumber === state.currentRound ? updated : r));
+            if (state.mode === "online" && state.room && db && !state.submittedOnline) {
+              db.collection("rooms").doc(state.room.roomCode).update({
+                [`submissions.${myClientId}`]: { ...state.answers },
+              }).catch(() => {});
             }
             render();
           }
-          else if (act === "next-round") {
-            if (state.mode === "tab_sync" && state.room) {
-              document.querySelector('[data-action="start-tab-round"]')?.click();
-              const letter = state.room.letterMode === "manual" ? state.manualLetter : pickNextLetter(state.room.usedLetters);
-              state.room.currentRound += 1;
-              state.room.targetLetter = letter;
-              if (!state.room.usedLetters.includes(letter)) state.room.usedLetters.push(letter);
-              state.room.timeLeft = state.room.timerSeconds;
-              state.room.submittedIds = [];
-              state.room.overrides = {};
-              state.room.players.forEach((p) => (state.room.submissionsByPlayer[p.id] = createEmptyAnswers()));
-              state.room.phase = "playing";
-              state.phase = "playing";
-              state.answers = createEmptyAnswers();
-              state.submittedTab = false;
-              soundFx.playStart();
-              broadcastRoom();
-              startTimer();
+          else if (act === "set-appeal") {
+            const pid = btn.dataset.pid;
+            const cat = btn.dataset.cat;
+            const decision = btn.dataset.decision;
+            if (state.mode === "online" && state.room) {
+              setOnlineAppeal(pid, cat, decision);
+            } else {
+              setLocalAppeal(pid, cat, decision);
+            }
+          }
+          else if (act === "confirm-appeals") {
+            if (state.mode === "online" && state.room) {
+              confirmOnlineAppeals();
+            } else {
+              state.phase = "results";
               render();
+            }
+          }
+          else if (act === "reopen-appeal") {
+            if (state.mode === "online" && state.room) {
+              reopenOnlineAppeal();
+            } else {
+              state.phase = "appeal";
+              render();
+            }
+          }
+          else if (act === "next-round") {
+            if (state.mode === "online" && state.room) {
+              startOnlineRound();
             } else {
               beginLocalRound(state.currentRound + 1);
             }
@@ -1363,29 +1859,41 @@
           else if (act === "finish-game") {
             stopTimer();
             soundFx.playVictory();
-            if (state.mode === "tab_sync" && state.room) {
-              state.room.phase = "gameover";
-              broadcastRoom();
+            if (state.mode === "online" && state.room && db) {
+              try {
+                await db.collection("rooms").doc(state.room.roomCode).update({ phase: "gameover" });
+              } catch (err) {
+                state.onlineError = formatFirebaseError(err, "Failed to end match.");
+                render();
+              }
+            } else {
+              state.phase = "gameover";
+              render();
             }
-            state.phase = "gameover";
-            render();
           }
           else if (act === "play-again") {
-            if (state.mode === "tab_sync" && state.room) {
-              state.room.phase = "lobby";
-              state.room.currentRound = 0;
-              state.room.usedLetters = [];
-              state.room.roundResults = [];
-              state.room.submittedIds = [];
-              state.phase = "lobby";
-              broadcastRoom();
-              render();
+            if (state.mode === "online" && state.room && db) {
+              try {
+                await db.collection("rooms").doc(state.room.roomCode).update({
+                  phase: "lobby",
+                  currentRound: 0,
+                  usedLetters: [],
+                  roundHistory: {},
+                  submissions: {},
+                  submittedMap: {},
+                  appeals: {},
+                });
+              } catch (err) {
+                state.onlineError = formatFirebaseError(err, "Failed to reset room.");
+                render();
+              }
             } else {
               startLocalGame();
             }
           }
           else if (act === "exit-menu") {
             stopTimer();
+            detachRoomListener();
             state.paused = false;
             state.room = null;
             state.phase = "title";
