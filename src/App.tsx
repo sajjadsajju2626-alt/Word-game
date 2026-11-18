@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppealReview } from './components/AppealReview';
 import { GameHud } from './components/GameHud';
 import { HandoffScreen } from './components/HandoffScreen';
 import { LiveRoomLobby } from './components/LiveRoomLobby';
@@ -13,9 +14,12 @@ import {
   pickBotAnswers,
   pickNextLetter,
   scoreRound,
+  setAppealDecision,
   type PlayerSubmission,
 } from './game/rules';
 import type {
+  AppealDecision,
+  AppealMap,
   BotDifficulty,
   CategoryId,
   GameMode,
@@ -67,7 +71,7 @@ export default function App() {
   const [answers, setAnswers] = useState<RoundAnswers>(createEmptyAnswers);
   const [roundSubmissions, setRoundSubmissions] = useState<PlayerSubmission[]>([]);
   const [roundResults, setRoundResults] = useState<RoundResult[]>([]);
-  const [overrides, setOverrides] = useState<Record<string, Record<CategoryId, boolean>>>({});
+  const [appeals, setAppeals] = useState<AppealMap>({});
 
   // Live Room local sheet tracking
   const [liveAnswers, setLiveAnswers] = useState<RoundAnswers>(createEmptyAnswers);
@@ -113,7 +117,7 @@ export default function App() {
       setLiveAnswers(createEmptyAnswers());
       soundFx.playStart();
     }
-    if (socket.roomState.phase === 'results') {
+    if (socket.roomState.phase === 'appeal') {
       soundFx.playTimeUp();
     }
     if (socket.roomState.phase === 'gameover') {
@@ -169,7 +173,7 @@ export default function App() {
       setUsedLetters(priorUsed.includes(letter) ? priorUsed : [...priorUsed, letter]);
       setTurnIndex(0);
       setRoundSubmissions([]);
-      setOverrides({});
+      setAppeals({});
       setAnswers(createEmptyAnswers());
       setTimeLeft(timerSeconds);
       setPaused(false);
@@ -252,7 +256,7 @@ export default function App() {
 
       const scored = scoreRound(currentRound, targetLetter, allSubs, {});
       setRoundResults((prev) => [...prev, scored]);
-      setPhase('results');
+      setPhase('appeal');
     },
     [
       activePlayers,
@@ -316,27 +320,19 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isLiveMode, phase, mode, startLocalGame]);
 
-  const handleToggleLocalVeto = (playerId: string, categoryId: CategoryId) => {
-    const updatedOverrides = {
-      ...overrides,
-      [playerId]: {
-        ...(overrides[playerId] ?? {
-          name: false,
-          place: false,
-          animal: false,
-          plant: false,
-          thing: false,
-        }),
-        [categoryId]: !(overrides[playerId]?.[categoryId] ?? false),
-      },
-    };
-    setOverrides(updatedOverrides);
+  const handleSetLocalAppeal = (
+    playerId: string,
+    categoryId: CategoryId,
+    decision: AppealDecision
+  ) => {
+    const updatedAppeals = setAppealDecision(appeals, playerId, categoryId, decision);
+    setAppeals(updatedAppeals);
 
     const recalculated = scoreRound(
       currentRound,
       targetLetter,
       roundSubmissions,
-      updatedOverrides
+      updatedAppeals
     );
     setRoundResults((prev) =>
       prev.map((r) => (r.roundNumber === currentRound ? recalculated : r))
@@ -434,6 +430,22 @@ export default function App() {
       );
     }
 
+    if (room.phase === 'appeal' && room.lastRoundResult) {
+      return (
+        <div className="min-h-screen ledger-canvas">
+          <AppealReview
+            result={room.lastRoundResult}
+            totalRounds={room.totalRounds}
+            language={language}
+            canAppeal={true}
+            canConfirm={isHost}
+            onSetAppeal={socket.setAppeal}
+            onConfirmAppeals={socket.confirmAppeals}
+          />
+        </div>
+      );
+    }
+
     if (room.phase === 'results' && room.lastRoundResult) {
       return (
         <div className="min-h-screen ledger-canvas">
@@ -446,7 +458,7 @@ export default function App() {
             nextManualLetter={manualLetter}
             onNextManualLetterChange={setManualLetter}
             canModerate={isHost}
-            onToggleVeto={socket.toggleVeto}
+            onSetAppeal={socket.setAppeal}
             onNextRound={() =>
               socket.startRound(room.letterMode === 'manual' ? manualLetter : undefined)
             }
@@ -583,6 +595,18 @@ export default function App() {
         </>
       )}
 
+      {phase === 'appeal' && latestRoundResult && (
+        <AppealReview
+          result={latestRoundResult}
+          totalRounds={totalRounds}
+          language={language}
+          canAppeal={true}
+          canConfirm={true}
+          onSetAppeal={handleSetLocalAppeal}
+          onConfirmAppeals={() => setPhase('results')}
+        />
+      )}
+
       {phase === 'results' && latestRoundResult && (
         <RoundResults
           result={latestRoundResult}
@@ -593,7 +617,8 @@ export default function App() {
           nextManualLetter={manualLetter}
           onNextManualLetterChange={setManualLetter}
           canModerate={true}
-          onToggleVeto={handleToggleLocalVeto}
+          onSetAppeal={handleSetLocalAppeal}
+          onReopenAppeal={() => setPhase('appeal')}
           onNextRound={handleLocalNextRound}
           onFinishGame={handleFinishLocalGame}
           usedLetters={usedLetters}

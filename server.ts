@@ -3,8 +3,10 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createEmptyAnswers, pickNextLetter, scoreRound } from './src/game/rules';
+import { createEmptyAnswers, pickNextLetter, scoreRound, setAppealDecision } from './src/game/rules';
 import type {
+  AppealDecision,
+  AppealMap,
   CategoryId,
   LetterSelectionMode,
   LiveRoomState,
@@ -18,7 +20,7 @@ const __dirname = path.dirname(__filename);
 interface InternalRoom {
   state: LiveRoomState;
   answersByPlayer: Map<string, RoundAnswers>;
-  overrides: Record<string, Record<CategoryId, boolean>>;
+  appeals: AppealMap;
   clients: Map<string, WebSocket>;
   timerHandle: ReturnType<typeof setInterval> | null;
 }
@@ -67,7 +69,7 @@ function finalizeRound(room: InternalRoom) {
     room.state.currentRound,
     room.state.targetLetter,
     submissions,
-    room.overrides
+    room.appeals
   );
 
   const existingIdx = room.state.roundResults.findIndex(
@@ -79,7 +81,7 @@ function finalizeRound(room: InternalRoom) {
     room.state.roundResults.push(result);
   }
   room.state.lastRoundResult = result;
-  room.state.phase = 'results';
+  room.state.phase = 'appeal';
   broadcastRoom(room);
 }
 
@@ -102,7 +104,7 @@ function startRoundOnRoom(room: InternalRoom, manualLetter?: string) {
   room.state.lastRoundResult = null;
   room.state.phase = 'playing';
   room.answersByPlayer.clear();
-  room.overrides = {};
+  room.appeals = {};
 
   for (const p of room.state.players) {
     room.answersByPlayer.set(p.id, createEmptyAnswers());
@@ -176,7 +178,7 @@ async function createServer() {
             lastRoundResult: null,
           },
           answersByPlayer: new Map(),
-          overrides: {},
+          appeals: {},
           clients: new Map([[playerId, ws]]),
           timerHandle: null,
         };
@@ -276,20 +278,22 @@ async function createServer() {
         return;
       }
 
-      if (type === 'room:toggle_veto') {
-        if (attachedPlayerId !== room.state.hostId || room.state.phase !== 'results') return;
+      if (type === 'room:set_appeal') {
+        if (room.state.phase !== 'appeal' && room.state.phase !== 'results') return;
         const targetPlayerId = String(msg.playerId ?? '');
         const categoryId = String(msg.categoryId ?? '') as CategoryId;
+        const decision = String(msg.decision ?? 'auto') as AppealDecision;
         if (!targetPlayerId || !categoryId) return;
+        if (decision !== 'auto' && decision !== 'approved' && decision !== 'rejected') return;
 
-        room.overrides[targetPlayerId] = room.overrides[targetPlayerId] ?? {
-          name: false,
-          place: false,
-          animal: false,
-          plant: false,
-          thing: false,
-        };
-        room.overrides[targetPlayerId][categoryId] = !room.overrides[targetPlayerId][categoryId];
+        const actor = room.state.players.find((p) => p.id === attachedPlayerId);
+        room.appeals = setAppealDecision(
+          room.appeals,
+          targetPlayerId,
+          categoryId,
+          decision,
+          actor?.name
+        );
 
         const submissions = room.state.players.map((player) => ({
           player,
@@ -299,13 +303,20 @@ async function createServer() {
           room.state.currentRound,
           room.state.targetLetter,
           submissions,
-          room.overrides
+          room.appeals
         );
         const idx = room.state.roundResults.findIndex((r) => r.roundNumber === updated.roundNumber);
         if (idx >= 0) {
           room.state.roundResults[idx] = updated;
         }
         room.state.lastRoundResult = updated;
+        broadcastRoom(room);
+        return;
+      }
+
+      if (type === 'room:confirm_appeals') {
+        if (attachedPlayerId !== room.state.hostId || room.state.phase !== 'appeal') return;
+        room.state.phase = 'results';
         broadcastRoom(room);
         return;
       }
@@ -328,7 +339,7 @@ async function createServer() {
         room.state.lastRoundResult = null;
         room.state.submittedPlayerIds = [];
         room.answersByPlayer.clear();
-        room.overrides = {};
+        room.appeals = {};
         broadcastRoom(room);
       }
     });

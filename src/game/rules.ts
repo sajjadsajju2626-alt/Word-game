@@ -1,5 +1,7 @@
 import { ALPHABET, CATEGORIES, WORD_DICTIONARY } from './dictionary';
 import type {
+  AppealDecision,
+  AppealMap,
   BotDifficulty,
   CategoryId,
   Player,
@@ -103,15 +105,12 @@ function startsWithTargetLetter(trimmed: string, upperTarget: string): boolean {
 }
 
 function looksLikeGibberish(norm: string): boolean {
-  // Reject 3+ identical consecutive chars (e.g., "kkk", "aaab")
   if (/(.)\1\1/.test(norm)) return true;
-  // If purely ASCII letters and length >= 3, require at least one vowel/y unless single-letter abbreviation
   if (/^[a-z\s]+$/.test(norm)) {
     const lettersOnly = norm.replace(/\s+/g, '');
     if (lettersOnly.length >= 3 && !/[aeiouy]/.test(lettersOnly)) {
       return true;
     }
-    // Reject single-char repeats like "kxkx" or random keyboard mashing of >16 chars without spaces
     if (lettersOnly.length > 28) return true;
   }
   return false;
@@ -177,15 +176,31 @@ export interface PlayerSubmission {
   answers: RoundAnswers;
 }
 
+export function setAppealDecision(
+  appeals: AppealMap,
+  playerId: string,
+  categoryId: CategoryId,
+  decision: AppealDecision,
+  byPlayerName?: string
+): AppealMap {
+  return {
+    ...appeals,
+    [playerId]: {
+      ...(appeals[playerId] ?? {}),
+      [categoryId]: { decision, byPlayerName },
+    },
+  };
+}
+
 export function scoreRound(
   roundNumber: number,
   targetLetter: string,
   submissions: PlayerSubmission[],
-  overrides: Record<string, Record<CategoryId, boolean>> = {}
+  appeals: AppealMap = {}
 ): RoundResult {
   const upperTarget = targetLetter.toUpperCase();
 
-  // First pass: validate every player's cell and count valid normalized words per category
+  // First pass: validate every player's cell, apply appeal decisions, and count valid normalized words per category
   const wordCounts: Record<CategoryId, Map<string, number>> = {
     name: new Map(),
     place: new Map(),
@@ -196,73 +211,121 @@ export function scoreRound(
 
   const preValidated = submissions.map(({ player, answers }) => {
     const validations = {} as Record<CategoryId, WordValidationResult>;
+    const effectiveValid = {} as Record<CategoryId, boolean>;
+    const appealDecisions = {} as Record<CategoryId, AppealDecision>;
+    const appealedByMap = {} as Record<CategoryId, string | undefined>;
+
     for (const cat of CATEGORIES) {
       const raw = answers[cat.id] ?? '';
+      const trimmed = raw.trim();
       const result = validateWordForLetter(raw, upperTarget, cat.id);
-      const isOverriddenInvalid = overrides[player.id]?.[cat.id] === true;
+      const appeal = appeals[player.id]?.[cat.id];
+      const decision: AppealDecision = appeal?.decision ?? 'auto';
+
       validations[cat.id] = result;
-      if (result.valid && !isOverriddenInvalid) {
+      appealDecisions[cat.id] = decision;
+      appealedByMap[cat.id] = appeal?.byPlayerName;
+
+      // Blank cells can never be valid; otherwise appeal 'approved' forces valid and 'rejected' forces invalid
+      const isValid =
+        trimmed.length > 0 &&
+        (decision === 'approved' ? true : decision === 'rejected' ? false : result.valid);
+
+      effectiveValid[cat.id] = isValid;
+
+      if (isValid) {
         const norm = normalizeWord(raw);
-        wordCounts[cat.id].set(norm, (wordCounts[cat.id].get(norm) ?? 0) + 1);
+        if (norm) {
+          wordCounts[cat.id].set(norm, (wordCounts[cat.id].get(norm) ?? 0) + 1);
+        }
       }
     }
-    return { player, answers, validations };
+    return { player, answers, validations, effectiveValid, appealDecisions, appealedByMap };
   });
 
   // Second pass: assign 10 / 5 / 0 points
-  const playerScores: PlayerRoundScore[] = preValidated.map(({ player, answers, validations }) => {
-    const cells = {} as Record<CategoryId, ScoredCell>;
-    let roundTotal = 0;
+  const playerScores: PlayerRoundScore[] = preValidated.map(
+    ({ player, answers, validations, effectiveValid, appealDecisions, appealedByMap }) => {
+      const cells = {} as Record<CategoryId, ScoredCell>;
+      let roundTotal = 0;
 
-    for (const cat of CATEGORIES) {
-      const raw = (answers[cat.id] ?? '').trim();
-      const norm = normalizeWord(raw);
-      const validation = validations[cat.id];
-      const overriddenInvalid = overrides[player.id]?.[cat.id] === true;
+      for (const cat of CATEGORIES) {
+        const raw = (answers[cat.id] ?? '').trim();
+        const norm = normalizeWord(raw);
+        const validation = validations[cat.id];
+        const isValid = effectiveValid[cat.id];
+        const decision = appealDecisions[cat.id];
+        const appealedBy = appealedByMap[cat.id];
 
-      if (!validation.valid) {
-        cells[cat.id] = {
-          raw,
-          normalized: norm,
-          points: 0,
-          status: validation.reason === 'blank' ? 'blank' : validation.reason === 'wrong_letter' ? 'wrong_letter' : 'invalid',
-          reason: validation.message,
-          inDictionary: false,
-        };
-      } else if (overriddenInvalid) {
-        cells[cat.id] = {
-          raw,
-          normalized: norm,
-          points: 0,
-          status: 'invalid',
-          reason: 'Challenged as invalid',
-          inDictionary: validation.inDictionary,
-          overriddenInvalid: true,
-        };
-      } else {
-        const count = wordCounts[cat.id].get(norm) ?? 1;
-        const isShared = count > 1;
-        const points: 5 | 10 = isShared ? 5 : 10;
-        roundTotal += points;
-        cells[cat.id] = {
-          raw,
-          normalized: norm,
-          points,
-          status: isShared ? 'shared' : 'unique',
-          reason: isShared ? 'Shared word (+5)' : 'Unique word (+10)',
-          inDictionary: validation.inDictionary,
-        };
+        if (!raw) {
+          cells[cat.id] = {
+            raw,
+            normalized: norm,
+            points: 0,
+            status: 'blank',
+            reason: 'No answer entered',
+            inDictionary: false,
+            autoValid: false,
+            appealDecision: 'auto',
+          };
+        } else if (!isValid) {
+          const isAppealRejected = decision === 'rejected';
+          cells[cat.id] = {
+            raw,
+            normalized: norm,
+            points: 0,
+            status:
+              !isAppealRejected && validation.reason === 'wrong_letter'
+                ? 'wrong_letter'
+                : 'invalid',
+            reason: isAppealRejected
+              ? appealedBy
+                ? `Marked incorrect (${appealedBy})`
+                : 'Marked incorrect on appeal'
+              : validation.message,
+            inDictionary: validation.inDictionary,
+            autoValid: validation.valid,
+            appealDecision: decision,
+            appealedBy,
+            overriddenInvalid: isAppealRejected,
+          };
+        } else {
+          const count = wordCounts[cat.id].get(norm) ?? 1;
+          const isShared = count > 1;
+          const points: 5 | 10 = isShared ? 5 : 10;
+          roundTotal += points;
+
+          const baseLabel = isShared ? 'Shared word (+5)' : 'Unique word (+10)';
+          const reason =
+            decision === 'approved'
+              ? appealedBy
+                ? `Approved (${appealedBy}) · ${isShared ? '+5' : '+10'}`
+                : `Approved on appeal · ${isShared ? '+5' : '+10'}`
+              : baseLabel;
+
+          cells[cat.id] = {
+            raw,
+            normalized: norm,
+            points,
+            status: isShared ? 'shared' : 'unique',
+            reason,
+            inDictionary: validation.inDictionary,
+            autoValid: validation.valid,
+            appealDecision: decision,
+            appealedBy,
+          };
+        }
       }
-    }
 
-    return {
-      playerId: player.id,
-      playerName: player.name,
-      isBot: player.isBot,
-      cells,
-      roundTotal,
-    };
-  });
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        isBot: player.isBot,
+        cells,
+        roundTotal,
+      };
+    }
+  );
 
   return {
     roundNumber,

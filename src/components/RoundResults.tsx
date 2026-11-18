@@ -1,6 +1,7 @@
-import { ArrowRight, Award, Ban, Check, RotateCcw, Trophy } from 'lucide-react';
+import { ArrowRight, Award, Ban, Check, Gavel, RotateCcw, Trophy } from 'lucide-react';
 import { ALPHABET, CATEGORIES } from '../game/dictionary';
 import type {
+  AppealDecision,
   CategoryId,
   LanguageMode,
   LetterSelectionMode,
@@ -18,7 +19,8 @@ interface RoundResultsProps {
   nextManualLetter: string;
   onNextManualLetterChange: (letter: string) => void;
   canModerate: boolean;
-  onToggleVeto: (playerId: string, categoryId: CategoryId) => void;
+  onSetAppeal: (playerId: string, categoryId: CategoryId, decision: AppealDecision) => void;
+  onReopenAppeal?: () => void;
   onNextRound: () => void;
   onFinishGame: () => void;
   usedLetters: string[];
@@ -33,7 +35,8 @@ export function RoundResults({
   nextManualLetter,
   onNextManualLetterChange,
   canModerate,
-  onToggleVeto,
+  onSetAppeal,
+  onReopenAppeal,
   onNextRound,
   onFinishGame,
   usedLetters,
@@ -95,10 +98,8 @@ export function RoundResults({
 
                   {result.playerScores.map((ps) => {
                     const cell = ps.cells[cat.id];
-                    const canVeto =
-                      canModerate &&
-                      cell.raw.trim().length > 0 &&
-                      cell.status !== 'wrong_letter';
+                    const hasWord = cell.raw.trim().length > 0;
+                    const isValidNow = cell.points > 0;
 
                     return (
                       <td key={ps.playerId} className="px-4 py-3.5 align-top">
@@ -150,19 +151,25 @@ export function RoundResults({
                               +{cell.points}
                             </span>
 
-                            {canVeto && (
+                            {canModerate && hasWord && (
                               <button
                                 type="button"
-                                onClick={() => onToggleVeto(ps.playerId, cat.id)}
+                                onClick={() =>
+                                  onSetAppeal(
+                                    ps.playerId,
+                                    cat.id,
+                                    isValidNow ? 'rejected' : 'approved'
+                                  )
+                                }
                                 className="text-[11px] font-semibold text-slate-500 underline hover:text-slate-800"
                               >
-                                {cell.overriddenInvalid ? (
+                                {isValidNow ? (
+                                  'Mark Incorrect'
+                                ) : (
                                   <span className="inline-flex items-center gap-0.5 text-emerald-700">
                                     <RotateCcw className="h-2.5 w-2.5" aria-hidden="true" />
-                                    Accept
+                                    Approve
                                   </span>
-                                ) : (
-                                  'Veto'
                                 )}
                               </button>
                             )}
@@ -239,14 +246,26 @@ export function RoundResults({
 
           {canModerate ? (
             isFinalRound ? (
-              <button
-                type="button"
-                onClick={onFinishGame}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors"
-              >
-                <Trophy className="h-4 w-4" aria-hidden="true" />
-                <span>View Final Winner Podium</span>
-              </button>
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={onFinishGame}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors"
+                >
+                  <Trophy className="h-4 w-4" aria-hidden="true" />
+                  <span>View Final Winner Podium</span>
+                </button>
+                {onReopenAppeal && (
+                  <button
+                    type="button"
+                    onClick={onReopenAppeal}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <Gavel className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Reopen Appeal & Review</span>
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="space-y-2.5">
                 <button
@@ -257,6 +276,16 @@ export function RoundResults({
                   <span>Start Round {result.roundNumber + 1}</span>
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </button>
+                {onReopenAppeal && (
+                  <button
+                    type="button"
+                    onClick={onReopenAppeal}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <Gavel className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Reopen Appeal & Review</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onFinishGame}

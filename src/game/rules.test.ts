@@ -84,14 +84,14 @@ test('scoreRound awards 10 for unique, 5 for shared, 0 for blank/wrong letter', 
   assert.equal(meera.roundTotal, 45);
 });
 
-test('scoreRound handles veto overrides and recalculates shared/unique points', () => {
+test('scoreRound handles appeal reject and approve overrides with 10/5/0 recalculation', () => {
   const result = scoreRound(
     1,
     'K',
     [
       {
         player: { id: 'p1', name: 'Anu' },
-        answers: { name: 'Karthik', place: 'Kochi', animal: 'Kite', plant: 'Kiwi', thing: 'Key' },
+        answers: { name: 'Karthik', place: 'Kochi', animal: 'Kite', plant: 'Banana', thing: 'Key' },
       },
       {
         player: { id: 'p2', name: 'Meera' },
@@ -99,16 +99,21 @@ test('scoreRound handles veto overrides and recalculates shared/unique points', 
       },
     ],
     {
-      p2: { name: true, place: false, animal: false, plant: false, thing: false },
+      p2: { name: { decision: 'rejected', byPlayerName: 'Anu' } },
+      p1: { plant: { decision: 'approved', byPlayerName: 'Meera' } },
     }
   );
 
   const anu = result.playerScores[0];
   const meera = result.playerScores[1];
-  // Because Meera's "Karthik" was vetoed, Anu's "Karthik" becomes unique (10)
+  // Because Meera's "Karthik" was marked incorrect on appeal, Anu's "Karthik" becomes unique (10)
   assert.equal(anu.cells.name.points, 10);
+  assert.equal(anu.cells.name.status, 'unique');
   assert.equal(meera.cells.name.points, 0);
   assert.equal(meera.cells.name.overriddenInvalid, true);
+  // Because Anu's "Banana" was explicitly approved on appeal, it earns 10 points
+  assert.equal(anu.cells.plant.points, 10);
+  assert.equal(anu.cells.plant.appealDecision, 'approved');
 });
 
 test('pickBotAnswers returns valid letter-matched answers', () => {

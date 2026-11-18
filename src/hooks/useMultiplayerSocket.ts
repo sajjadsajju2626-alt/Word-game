@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  AppealDecision,
   CategoryId,
   LetterSelectionMode,
   LiveRoomState,
@@ -21,7 +22,8 @@ export interface MultiplayerSocketApi {
   startRound: (manualLetter?: string) => void;
   updateAnswers: (answers: RoundAnswers) => void;
   submitAnswers: (answers: RoundAnswers) => void;
-  toggleVeto: (playerId: string, categoryId: CategoryId) => void;
+  setAppeal: (playerId: string, categoryId: CategoryId, decision: AppealDecision) => void;
+  confirmAppeals: () => void;
   finishGame: () => void;
   restartRoom: () => void;
   leaveRoom: () => void;
@@ -144,12 +146,21 @@ export function useMultiplayerSocket(): MultiplayerSocketApi {
     [sendMessage]
   );
 
-  const toggleVeto = useCallback(
-    (targetPlayerId: string, categoryId: CategoryId) => {
-      void sendMessage({ type: 'room:toggle_veto', playerId: targetPlayerId, categoryId });
+  const setAppeal = useCallback(
+    (targetPlayerId: string, categoryId: CategoryId, decision: AppealDecision) => {
+      void sendMessage({
+        type: 'room:set_appeal',
+        playerId: targetPlayerId,
+        categoryId,
+        decision,
+      });
     },
     [sendMessage]
   );
+
+  const confirmAppeals = useCallback(() => {
+    void sendMessage({ type: 'room:confirm_appeals' });
+  }, [sendMessage]);
 
   const finishGame = useCallback(() => {
     void sendMessage({ type: 'room:finish_game' });
@@ -180,7 +191,8 @@ export function useMultiplayerSocket(): MultiplayerSocketApi {
     startRound,
     updateAnswers,
     submitAnswers,
-    toggleVeto,
+    setAppeal,
+    confirmAppeals,
     finishGame,
     restartRoom,
     leaveRoom,
