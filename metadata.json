@@ -1,0 +1,6 @@
+{
+  "name": "Peru Sadhanam Mrigam Sthalam",
+  "description": "Interactive bilingual Malayalam-English Name, Place, Animal/Bird, Flower/Fruit, Thing parlor game with Solo vs Bot, Pass & Play, and Live Room multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
