@@ -4,29 +4,1397 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>പേര് · സ്ഥലം · മൃഗം · സാധനം — Name Place Animal Thing</title>
-    <meta
-      name="description"
-      content="Interactive bilingual Malayalam-English Name, Place, Animal/Bird, Flower/Fruit, Thing parlor game with Solo vs Bot, Pass & Play, and Live Room multiplayer."
-    />
-    <meta
-      property="og:title"
-      content="പേര് · സ്ഥലം · മൃഗം · സാധനം — Name Place Animal Thing"
-    />
-    <meta
-      property="og:description"
-      content="Interactive bilingual Malayalam-English Name, Place, Animal/Bird, Flower/Fruit, Thing parlor game with Solo vs Bot, Pass & Play, and Live Room multiplayer."
-    />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+Malayalam:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <style>
+      body {
+        font-family: "Plus Jakarta Sans", "Noto Sans Malayalam", system-ui, sans-serif;
+        background-color: #f8fafc;
+        color: #0f172a;
+      }
+      h1, h2, h3, .font-display {
+        font-family: "Bricolage Grotesque", "Noto Sans Malayalam", system-ui, sans-serif;
+      }
+      .font-mono-tabular {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .ledger-canvas {
+        background-color: #f8fafc;
+        background-image: radial-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+        background-size: 20px 20px;
+      }
+      .notebook-paper {
+        background-color: #ffffff;
+        background-image: linear-gradient(to bottom, transparent 31px, rgba(148, 163, 184, 0.14) 32px);
+        background-size: 100% 32px;
+      }
+    </style>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-emerald-100 selection:text-emerald-900">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+  <body class="ledger-canvas min-h-screen text-slate-900 antialiased selection:bg-emerald-100 selection:text-emerald-900">
+    <div id="app"></div>
+
+    <script>
+      (() => {
+        // =====================================================================
+        // 1. CONSTANTS, CATEGORIES & A-Z BILINGUAL-FRIENDLY WORD DICTIONARY
+        // =====================================================================
+        const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+
+        const CATEGORIES = [
+          { id: "name", en: "Name", ml: "പേര്", placeholderEn: "e.g. Karthik, Kalyani", placeholderMl: "ഉദാ: കാർത്തിക്, കല്യാണി" },
+          { id: "place", en: "Place", ml: "സ്ഥലം", placeholderEn: "e.g. Kochi, Kozhikode", placeholderMl: "ഉദാ: കൊച്ചി, കോഴിക്കോട്" },
+          { id: "animal", en: "Animal / Bird", ml: "മൃഗം / പക്ഷി", placeholderEn: "e.g. Kingfisher, Kangaroo", placeholderMl: "ഉദാ: കടുവ, കാക്ക" },
+          { id: "plant", en: "Flower / Fruit", ml: "പൂവ് / പഴം", placeholderEn: "e.g. Kanikonna, Kiwi", placeholderMl: "ഉദാ: കണിക്കൊന്ന, കൈതച്ചക്ക" },
+          { id: "thing", en: "Thing", ml: "സാധനം", placeholderEn: "e.g. Kettle, Key", placeholderMl: "ഉദാ: കസേര, കണ്ണാടി" },
+        ];
+
+        const WORD_DICTIONARY = {
+          A: { name: ["Arjun", "Anjali", "Asha", "Arun", "Amal", "Ananya"], place: ["Alappuzha", "Agra", "Aluva", "Athirappilly", "Amsterdam", "Athens"], animal: ["Antelope", "Albatross", "Aana", "Alligator", "Ant", "Alpaca"], plant: ["Apple", "Apricot", "Avocado", "Aster", "Anthurium", "Almond"], thing: ["Anchor", "Almirah", "Appam", "Aeroplane", "Axe", "Apron"] },
+          B: { name: ["Balan", "Bindu", "Bhavana", "Babu", "Basheer", "Bella"], place: ["Bekal", "Bengaluru", "Beypore", "Berlin", "Bangkok", "Boston"], animal: ["Bengal Tiger", "Bear", "Buffalo", "Bulbul", "Butterfly", "Baboon"], plant: ["Banana", "Blueberry", "Banyan", "Bougainvillea", "Blackberry", "Basil"], thing: ["Bucket", "Bicycle", "Book", "Bottle", "Broom", "Bell"] },
+          C: { name: ["Chitra", "Chandran", "Clara", "Celine", "Charles", "Chetan"], place: ["Cochin", "Chalakudy", "Chennai", "Chengannur", "Chicago", "Cairo"], animal: ["Cheetah", "Camel", "Crow", "Cat", "Crocodile", "Crane"], plant: ["Chembarathi", "Chakka", "Coconut", "Cherry", "Carnation", "Cashew"], thing: ["Chair", "Clock", "Compass", "Candle", "Cup", "Camera"] },
+          D: { name: ["Deepak", "Divya", "Devika", "Dinesh", "Daniel", "Diana"], place: ["Delhi", "Devikulam", "Dubai", "Dublin", "Doha", "Darjeeling"], animal: ["Deer", "Dolphin", "Duck", "Dog", "Dove", "Donkey"], plant: ["Dahlia", "Date", "Daisy", "Dragonfruit", "Dandelion", "Durian"], thing: ["Drum", "Desk", "Door", "Diary", "Dish", "Duster"] },
+          E: { name: ["Esha", "Eapen", "Elena", "Ethan", "Elias", "Elsa"], place: ["Ernakulam", "Edappally", "Ezhimala", "Edinburgh", "Egypt", "Erode"], animal: ["Elephant", "Eagle", "Emu", "Eel", "Egret", "Elk"], plant: ["Elderberry", "Eucalyptus", "Edelweiss", "Eggplant", "Elengi", "Endive"], thing: ["Envelope", "Eraser", "Engine", "Easel", "Earrings", "Earphone"] },
+          F: { name: ["Fathima", "Farhan", "Faisal", "Fiona", "Francis", "Felix"], place: ["Feroke", "Fort Kochi", "Florence", "Frankfurt", "Fiji", "France"], animal: ["Fox", "Flamingo", "Falcon", "Frog", "Firefly", "Ferret"], plant: ["Fig", "Frangipani", "Freesia", "Fennel", "Foxglove", "Fern"], thing: ["Fan", "Fork", "Flute", "Flashlight", "Frame", "Fridge"] },
+          G: { name: ["Gokul", "Gopika", "Ganesh", "Geetha", "Grace", "George"], place: ["Guruvayur", "Gavi", "Goa", "Geneva", "Guwahati", "Glasgow"], animal: ["Giraffe", "Goat", "Gorilla", "Goose", "Gazelle", "Gecko"], plant: ["Guava", "Grape", "Geranium", "Gladiolus", "Gooseberry", "Ginger"], thing: ["Guitar", "Glass", "Globe", "Gloves", "Gate", "Goggles"] },
+          H: { name: ["Harish", "Hema", "Hannah", "Hari", "Haseena", "Henry"], place: ["Haripad", "Hyderabad", "Hampi", "Helsinki", "Havana", "Honolulu"], animal: ["Horse", "Hawk", "Hippopotamus", "Heron", "Hamster", "Hyena"], plant: ["Hibiscus", "Honeydew", "Hyacinth", "Hazelnut", "Honeysuckle", "Holly"], thing: ["Hammer", "Hat", "Helmet", "Harp", "Hanger", "Headphones"] },
+          I: { name: ["Indu", "Ishan", "Imran", "Irene", "Ibrahim", "Ishita"], place: ["Idukki", "Irinjalakuda", "Indore", "Istanbul", "Ireland", "Italy"], animal: ["Iguana", "Impala", "Ibis", "Ibex", "Indri", "Inchworm"], plant: ["Iris", "Ixora", "Indian Fig", "Ice Apple", "Ivy", "Indigo"], thing: ["Iron", "Inkpot", "Icebox", "Instrument", "Inhaler", "Ivory"] },
+          J: { name: ["Jayan", "Jyothi", "Jithin", "Jasmine", "Joseph", "Janaki"], place: ["Jaipur", "Jalandhar", "Jakarta", "Jerusalem", "Jamaica", "Jodhpur"], animal: ["Jaguar", "Jackal", "Jellyfish", "Jay", "Jerboa", "Jackrabbit"], plant: ["Jackfruit", "Jasmine", "Jambun", "Jujube", "Jonquil", "Juniper"], thing: ["Jug", "Jacket", "Jar", "Jigsaw", "Journal", "Jeep"] },
+          K: { name: ["Karthik", "Kalyani", "Krishnan", "Kavya", "Kiran", "Keerthi"], place: ["Kochi", "Kannur", "Kozhikode", "Kottayam", "Kollam", "Kasaragod"], animal: ["Kingfisher", "Kangaroo", "Koala", "Kite", "Kiwi Bird", "Kestrel"], plant: ["Kanikonna", "Kiwi", "Kumquat", "Kudampuli", "Konna", "Kacholam"], thing: ["Kettle", "Key", "Kite", "Knife", "Keyboard", "Kayak"] },
+          L: { name: ["Lakshmi", "Lal", "Lekshmi", "Lijo", "Lucas", "Liam"], place: ["London", "Lucknow", "Lisbon", "Lima", "Lakshadweep", "Leh"], animal: ["Lion", "Leopard", "Llama", "Lemur", "Lizard", "Lobster"], plant: ["Lotus", "Lemon", "Lychee", "Lavender", "Lily", "Lime"], thing: ["Lamp", "Lock", "Ladder", "Lantern", "Laptop", "Ladle"] },
+          M: { name: ["Meera", "Manoj", "Maya", "Mohan", "Malavika", "Midhun"], place: ["Munnar", "Malappuram", "Madurai", "Mumbai", "Mysuru", "Melbourne"], animal: ["Monkey", "Mayil", "Macaw", "Mongoose", "Mouse", "Mynah"], plant: ["Mango", "Marigold", "Mullapoo", "Mangosteen", "Mulberry", "Moringa"], thing: ["Mirror", "Mat", "Mug", "Microphone", "Magnet", "Map"] },
+          N: { name: ["Nikhil", "Nandana", "Nithin", "Nadia", "Naveen", "Nirmala"], place: ["Nilambur", "Neyyattinkara", "Nagpur", "Nairobi", "Naples", "Noida"], animal: ["Nightingale", "Newt", "Narwhal", "Nilgai", "Numbat", "Nautilus"], plant: ["Nutmeg", "Nectarine", "Neem", "Narcissus", "Nasturtium", "Nelli"], thing: ["Needle", "Notebook", "Net", "Nail", "Necklace", "Napkin"] },
+          O: { name: ["Omana", "Omkar", "Olivia", "Omar", "Oscar", "Ouseph"], place: ["Ooty", "Ottapalam", "Oslo", "Ottawa", "Osaka", "Oxford"], animal: ["Owl", "Otter", "Ostrich", "Octopus", "Orangutan", "Oryx"], plant: ["Orange", "Olive", "Orchid", "Okra", "Oleander", "Oat"], thing: ["Oven", "Oar", "Ornament", "Organ", "Opener", "Oil Lamp"] },
+          P: { name: ["Pranav", "Priya", "Parvathy", "Prakash", "Padma", "Paul"], place: ["Palakkad", "Pathanamthitta", "Ponnani", "Paris", "Pune", "Pala"], animal: ["Peacock", "Parrot", "Panther", "Panda", "Penguin", "Pigeon"], plant: ["Papaya", "Pineapple", "Pomegranate", "Plum", "Peach", "Parijatham"], thing: ["Pen", "Pillow", "Plate", "Puttu Maker", "Pot", "Pencil"] },
+          Q: { name: ["Qasim", "Queenie", "Quincy", "Qadir", "Quinn", "Quentin"], place: ["Quilon", "Qatar", "Quebec", "Queenstown", "Quito", "Qazvin"], animal: ["Quail", "Quokka", "Quetzal", "Queen Bee", "Quoll"], plant: ["Quince", "Quinoa", "Queen Anne Lace", "Quassia"], thing: ["Quilt", "Quill", "Quartz", "Quiver", "Quadbike"] },
+          R: { name: ["Rahul", "Reshma", "Ramesh", "Revathi", "Rohan", "Radha"], place: ["Ranni", "Rameswaram", "Rome", "Ranchi", "Riyadh", "Rio"], animal: ["Rabbit", "Rhinoceros", "Robin", "Raven", "Reindeer", "Rooster"], plant: ["Rose", "Rambutan", "Raspberry", "Rhododendron", "Radish", "Rosemary"], thing: ["Radio", "Rope", "Ring", "Ruler", "Ribbon", "Rug"] },
+          S: { name: ["Sajjad", "Sneha", "Suresh", "Shreya", "Salim", "Santhosh"], place: ["Shoranur", "Sulthan Bathery", "Shimla", "Sydney", "Singapore", "Seoul"], animal: ["Swan", "Sparrow", "Squirrel", "Shark", "Snake", "Stork"], plant: ["Strawberry", "Sunflower", "Sapota", "Starfruit", "Sugarcane", "Saffron"], thing: ["Spoon", "Scissors", "Suitcase", "Sofa", "Spectacles", "Soap"] },
+          T: { name: ["Theresa", "Tarun", "Thomas", "Tanvi", "Toby", "Thulasi"], place: ["Thrissur", "Thiruvananthapuram", "Thalassery", "Tokyo", "Toronto", "Tirur"], animal: ["Tiger", "Turtle", "Toucan", "Turkey", "Tortoise", "Tapir"], plant: ["Tulip", "Tamarind", "Thulasi", "Tomato", "Tangerine", "Teak"], thing: ["Table", "Telephone", "Torch", "Television", "Teapot", "Towel"] },
+          U: { name: ["Usha", "Unni", "Uma", "Uday", "Urmila", "Umar"], place: ["Udaipur", "Udupi", "Ujjain", "Utrecht", "Uganda", "Ukraine"], animal: ["Urchin", "Urial", "Umbrellabird", "Uakari", "Unicornfish"], plant: ["Ugli Fruit", "Ume", "Urn Plant", "Urad"], thing: ["Umbrella", "Urn", "Uniform", "Ukulele", "Utensil", "Unicycle"] },
+          V: { name: ["Vishnu", "Vidya", "Vijay", "Varsha", "Vivek", "Veena"], place: ["Varkala", "Vadakara", "Vaikom", "Varanasi", "Vienna", "Venice"], animal: ["Vulture", "Viper", "Vole", "Vicuña", "Vampire Bat"], plant: ["Vanilla", "Violet", "Verbena", "Vetiver", "Velvet Apple"], thing: ["Vase", "Violin", "Vacuum", "Vest", "Vessel", "Van"] },
+          W: { name: ["Wasim", "Wafa", "William", "Wendy", "Wilson", "Walter"], place: ["Wayanad", "Wadakanchery", "Warsaw", "Washington", "Wellington", "Wales"], animal: ["Whale", "Wolf", "Woodpecker", "Walrus", "Wombat", "Wren"], plant: ["Watermelon", "Walnut", "Water Lily", "Willow", "Wisteria", "Wheat"], thing: ["Watch", "Window", "Wheel", "Wallet", "Whistle", "Wrench"] },
+          X: { name: ["Xavier", "Xena", "Xander", "Xia", "Xavi"], place: ["Xiamen", "Xanadu", "Xalapa", "Xochimilco", "Xiangyang"], animal: ["Xerus", "X-Ray Tetra", "Xenops", "Xoloitzcuintli"], plant: ["Ximenia", "Xerophyte", "Xylosma", "Xanthosoma"], thing: ["Xylophone", "X-Ray Machine", "Xerox Machine", "Xbox"] },
+          Y: { name: ["Yusuf", "Yamuna", "Yash", "Yasmin", "Yuvan", "Yadhu"], place: ["Yercaud", "Yokohama", "York", "Yemen", "Yellowstone"], animal: ["Yak", "Yellowhammer", "Yorkshire Terrier", "Yabby"], plant: ["Yucca", "Yam", "Yarrow", "Yellow Bell", "Ylang-Ylang"], thing: ["Yacht", "Yarn", "Yo-Yo", "Yardstick", "Yoga Mat"] },
+          Z: { name: ["Zoya", "Zain", "Zakir", "Zara", "Zubin", "Zeenat"], place: ["Zurich", "Zanzibar", "Zagreb", "Zambia", "Zaragoza"], animal: ["Zebra", "Zebu", "Zorilla", "Zander", "Zebra Finch"], plant: ["Zinnia", "Zucchini", "Ziziphus", "Zephyr Lily"], thing: ["Zipper", "Zither", "Zeppelin", "Zinc", "Zoom Lens"] },
+        };
+
+        const MALAYALAM_INITIAL_MAP = {
+          "അ": ["A"], "ആ": ["A"], "ഇ": ["I", "E"], "ഈ": ["I", "E"], "ഉ": ["U", "O"], "ഊ": ["U"],
+          "ഋ": ["R"], "എ": ["E"], "ഏ": ["E"], "ഐ": ["A", "I"], "ഒ": ["O"], "ഓ": ["O"], "ഔ": ["O", "A"],
+          "ക": ["K", "C"], "ഖ": ["K"], "ഗ": ["G"], "ഘ": ["G"], "ച": ["C"], "ഛ": ["C"],
+          "ജ": ["J"], "ഝ": ["J"], "ട": ["T"], "ഠ": ["T"], "ഡ": ["D"], "ഢ": ["D"],
+          "ത": ["T"], "ഥ": ["T"], "ദ": ["D"], "ധ": ["D"], "ന": ["N"], "പ": ["P"], "ഫ": ["F", "P"],
+          "ബ": ["B"], "ഭ": ["B"], "മ": ["M"], "യ": ["Y"], "ര": ["R"], "ല": ["L"],
+          "വ": ["V", "W"], "ശ": ["S"], "ഷ": ["S"], "സ": ["S"], "ഹ": ["H"], "ള": ["L"], "ഴ": ["Z", "L"], "റ": ["R"],
+        };
+
+        // =====================================================================
+        // 2. SOUND ENGINE (Web Audio API)
+        // =====================================================================
+        const soundFx = (() => {
+          let ctx = null;
+          let muted = false;
+          function ensureCtx() {
+            if (muted) return null;
+            if (!ctx) {
+              const AC = window.AudioContext || window.webkitAudioContext;
+              if (!AC) return null;
+              ctx = new AC();
+            }
+            if (ctx.state === "suspended") ctx.resume().catch(() => {});
+            return ctx;
+          }
+          function tone(freq, dur, type = "sine", vol = 0.08, delay = 0) {
+            const c = ensureCtx();
+            if (!c) return;
+            const now = c.currentTime + delay;
+            const osc = c.createOscillator();
+            const gain = c.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, now);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(vol, now + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+            osc.connect(gain);
+            gain.connect(c.destination);
+            osc.start(now);
+            osc.stop(now + dur + 0.02);
+          }
+          return {
+            isMuted: () => muted,
+            toggleMute: () => { muted = !muted; return muted; },
+            playStart: () => { tone(523.25, 0.12, "triangle", 0.08, 0); tone(659.25, 0.12, "triangle", 0.08, 0.09); tone(783.99, 0.18, "triangle", 0.09, 0.18); },
+            playUrgentTick: () => tone(1046.5, 0.09, "square", 0.04),
+            playSubmit: () => { tone(587.33, 0.1, "sine", 0.07, 0); tone(880, 0.18, "sine", 0.08, 0.08); },
+            playTimeUp: () => { tone(440, 0.18, "sawtooth", 0.06, 0); tone(349.23, 0.32, "sawtooth", 0.06, 0.16); },
+            playVictory: () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.22, "triangle", 0.08, i * 0.11)),
+          };
+        })();
+
+        // =====================================================================
+        // 3. PURE GAME RULES, VALIDATION, SCORING & STANDINGS
+        // =====================================================================
+        function escapeHtml(str) {
+          return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+
+        function createEmptyAnswers() {
+          return { name: "", place: "", animal: "", plant: "", thing: "" };
+        }
+
+        function normalizeWord(raw) {
+          return String(raw || "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .replace(/^[^a-z0-9\u0D00-\u0D7F]+|[^a-z0-9\u0D00-\u0D7F]+$/g, "");
+        }
+
+        function startsWithTargetLetter(trimmed, upperTarget) {
+          const first = trimmed[0];
+          if (!first) return false;
+          if (first.toUpperCase() === upperTarget) return true;
+          const ml = MALAYALAM_INITIAL_MAP[first];
+          return Boolean(ml && ml.includes(upperTarget));
+        }
+
+        function looksLikeGibberish(norm) {
+          if (/(.)\1\1/.test(norm)) return true;
+          if (/^[a-z\s]+$/.test(norm)) {
+            const lettersOnly = norm.replace(/\s+/g, "");
+            if (lettersOnly.length >= 3 && !/[aeiouy]/.test(lettersOnly)) return true;
+            if (lettersOnly.length > 28) return true;
+          }
+          return false;
+        }
+
+        function isInDictionary(word, letter, catId) {
+          const norm = normalizeWord(word);
+          if (!norm) return false;
+          const pool = (WORD_DICTIONARY[letter.toUpperCase()] || {})[catId] || [];
+          return pool.some((item) => normalizeWord(item) === norm);
+        }
+
+        function validateWordForLetter(raw, targetLetter, catId) {
+          const trimmed = String(raw || "").trim();
+          const upper = targetLetter.toUpperCase();
+          if (!trimmed) return { valid: false, reason: "blank", message: "No answer entered", inDictionary: false };
+          const norm = normalizeWord(trimmed);
+          if (norm.length < 2) return { valid: false, reason: "too_short", message: "Enter at least 2 letters", inDictionary: false };
+          if (!startsWithTargetLetter(trimmed, upper)) return { valid: false, reason: "wrong_letter", message: `Must start with "${upper}"`, inDictionary: false };
+          const inDict = catId ? isInDictionary(trimmed, upper, catId) : false;
+          if (!inDict && looksLikeGibberish(norm)) return { valid: false, reason: "gibberish", message: "Word looks invalid", inDictionary: false };
+          return { valid: true, reason: "ok", message: inDict ? `Verified "${upper}" word` : `Starts with "${upper}"`, inDictionary: inDict };
+        }
+
+        function scoreRound(roundNumber, targetLetter, submissions, overrides = {}) {
+          const upper = targetLetter.toUpperCase();
+          const wordCounts = { name: new Map(), place: new Map(), animal: new Map(), plant: new Map(), thing: new Map() };
+
+          const pre = submissions.map(({ player, answers }) => {
+            const validations = {};
+            for (const cat of CATEGORIES) {
+              const raw = answers[cat.id] || "";
+              const val = validateWordForLetter(raw, upper, cat.id);
+              const vetoed = Boolean(overrides[player.id] && overrides[player.id][cat.id]);
+              validations[cat.id] = val;
+              if (val.valid && !vetoed) {
+                const norm = normalizeWord(raw);
+                wordCounts[cat.id].set(norm, (wordCounts[cat.id].get(norm) || 0) + 1);
+              }
+            }
+            return { player, answers, validations };
+          });
+
+          const playerScores = pre.map(({ player, answers, validations }) => {
+            const cells = {};
+            let roundTotal = 0;
+            for (const cat of CATEGORIES) {
+              const raw = String(answers[cat.id] || "").trim();
+              const norm = normalizeWord(raw);
+              const val = validations[cat.id];
+              const vetoed = Boolean(overrides[player.id] && overrides[player.id][cat.id]);
+
+              if (!val.valid) {
+                cells[cat.id] = {
+                  raw, normalized: norm, points: 0,
+                  status: val.reason === "blank" ? "blank" : val.reason === "wrong_letter" ? "wrong_letter" : "invalid",
+                  reason: val.message,
+                };
+              } else if (vetoed) {
+                cells[cat.id] = {
+                  raw, normalized: norm, points: 0, status: "invalid",
+                  reason: "Challenged as invalid", overriddenInvalid: true,
+                };
+              } else {
+                const isShared = (wordCounts[cat.id].get(norm) || 1) > 1;
+                const pts = isShared ? 5 : 10;
+                roundTotal += pts;
+                cells[cat.id] = {
+                  raw, normalized: norm, points: pts,
+                  status: isShared ? "shared" : "unique",
+                  reason: isShared ? "Shared word (+5)" : "Unique word (+10)",
+                };
+              }
+            }
+            return { playerId: player.id, playerName: player.name, isBot: player.isBot, cells, roundTotal };
+          });
+
+          return { roundNumber, letter: upper, playerScores };
+        }
+
+        function pickBotAnswers(targetLetter, difficulty) {
+          const dict = WORD_DICTIONARY[targetLetter.toUpperCase()];
+          const ans = createEmptyAnswers();
+          if (!dict) return ans;
+          const blankChance = difficulty === "casual" ? 0.14 : 0.03;
+          for (const cat of CATEGORIES) {
+            const pool = dict[cat.id] || [];
+            if (!pool.length) continue;
+            ans[cat.id] = Math.random() < blankChance ? "" : pool[Math.floor(Math.random() * pool.length)];
+          }
+          return ans;
+        }
+
+        function pickNextLetter(usedLetters) {
+          const used = new Set(usedLetters.map((l) => l.toUpperCase()));
+          const avail = ALPHABET.filter((l) => !used.has(l));
+          const pool = avail.length ? avail : ALPHABET;
+          return pool[Math.floor(Math.random() * pool.length)];
+        }
+
+        function calculateStandings(players, roundResults) {
+          const map = new Map();
+          players.forEach((p) => {
+            map.set(p.id, { playerId: p.id, playerName: p.name, totalScore: 0, uniqueCount: 0, sharedCount: 0, rank: 1 });
+          });
+          roundResults.forEach((r) => {
+            r.playerScores.forEach((ps) => {
+              if (!map.has(ps.playerId)) {
+                map.set(ps.playerId, { playerId: ps.playerId, playerName: ps.playerName, totalScore: 0, uniqueCount: 0, sharedCount: 0, rank: 1 });
+              }
+              const entry = map.get(ps.playerId);
+              entry.totalScore += ps.roundTotal;
+              CATEGORIES.forEach((cat) => {
+                if (ps.cells[cat.id].status === "unique") entry.uniqueCount += 1;
+                if (ps.cells[cat.id].status === "shared") entry.sharedCount += 1;
+              });
+            });
+          });
+          const sorted = Array.from(map.values()).sort((a, b) =>
+            b.totalScore - a.totalScore || b.uniqueCount - a.uniqueCount || a.playerName.localeCompare(b.playerName)
+          );
+          for (let i = 0; i < sorted.length; i++) {
+            sorted[i].rank = i > 0 && sorted[i].totalScore === sorted[i - 1].totalScore ? sorted[i - 1].rank : i + 1;
+          }
+          return sorted;
+        }
+
+        function formatCatLabel(cat) {
+          if (state.language === "english") return { primary: cat.en, secondary: "" };
+          return { primary: cat.ml, secondary: cat.en };
+        }
+
+        // =====================================================================
+        // 4. STATE & CROSS-TAB REAL-TIME BROADCAST SYNC
+        // =====================================================================
+        const BOT_NAMES = ["Kuttappan Bot", "Minnu Bot", "Appu Bot"];
+        const myClientId = "p_" + Math.random().toString(36).slice(2, 9);
+        const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("peru_sadhanam_sync_v1") : null;
+
+        const state = {
+          phase: "title", // title | lobby | handoff | playing | results | gameover
+          mode: "solo",   // solo | pass_and_play | tab_sync
+          language: "bilingual",
+          totalRounds: 3,
+          timerSeconds: 60,
+          letterMode: "random",
+          manualLetter: "K",
+          soloName: "Player 1",
+          botCount: 1,
+          botDifficulty: "casual",
+          localPlayers: [
+            { id: "lp_1", name: "Player 1" },
+            { id: "lp_2", name: "Player 2" },
+          ],
+          tabName: "Player 1",
+          joinCode: "",
+          tabError: "",
+          // Active local session
+          activePlayers: [],
+          currentRound: 1,
+          targetLetter: "K",
+          usedLetters: [],
+          turnIndex: 0,
+          timeLeft: 60,
+          paused: false,
+          hintsEnabled: false,
+          answers: createEmptyAnswers(),
+          roundSubmissions: [],
+          roundResults: [],
+          overrides: {},
+          // Cross-tab room state
+          room: null, // { roomCode, hostId, phase, players, currentRound, totalRounds, timerSeconds, timeLeft, targetLetter, letterMode, usedLetters, submissionsByPlayer, submittedIds, roundResults, overrides }
+          submittedTab: false,
+        };
+
+        let timerInterval = null;
+
+        function stopTimer() {
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+        }
+
+        function startTimer() {
+          stopTimer();
+          timerInterval = setInterval(() => {
+            if (state.mode === "tab_sync" && state.room) {
+              if (state.room.hostId !== myClientId || state.room.phase !== "playing") return;
+              state.room.timeLeft = Math.max(0, state.room.timeLeft - 1);
+              if (state.room.timeLeft > 0 && state.room.timeLeft <= 10) soundFx.playUrgentTick();
+              if (state.room.timeLeft <= 0) {
+                finalizeTabRoomRound();
+              } else {
+                broadcastRoom();
+                updateHudTimerOnly();
+              }
+              return;
+            }
+            if (state.phase !== "playing" || state.paused) return;
+            state.timeLeft = Math.max(0, state.timeLeft - 1);
+            if (state.timeLeft > 0 && state.timeLeft <= 10) soundFx.playUrgentTick();
+            if (state.timeLeft <= 0) {
+              submitLocalTurn(true);
+            } else {
+              updateHudTimerOnly();
+            }
+          }, 1000);
+        }
+
+        function updateHudTimerOnly() {
+          const timerEl = document.getElementById("hud-timer-text");
+          const barEl = document.getElementById("hud-timer-bar");
+          const labelEl = document.getElementById("hud-timer-label");
+          const t = state.mode === "tab_sync" && state.room ? state.room.timeLeft : state.timeLeft;
+          const max = state.mode === "tab_sync" && state.room ? state.room.timerSeconds : state.timerSeconds;
+          if (!timerEl || !barEl || !labelEl) return;
+          const urgent = t <= 10;
+          timerEl.textContent = t + "s";
+          timerEl.className = "font-mono-tabular text-base font-bold " + (urgent ? "text-red-700" : "text-slate-900");
+          labelEl.textContent = urgent ? "Hurry" : "Time";
+          labelEl.className = urgent ? "text-red-700" : "text-slate-500";
+          barEl.style.width = Math.max(0, Math.min(100, (t / max) * 100)) + "%";
+          barEl.className = "h-full transition-[width] duration-300 " + (urgent ? "bg-red-600" : "bg-emerald-600");
+        }
+
+        function broadcastRoom() {
+          if (bc && state.room) {
+            bc.postMessage({ type: "room:sync", room: state.room });
+          }
+        }
+
+        function finalizeTabRoomRound() {
+          if (!state.room) return;
+          stopTimer();
+          const subs = state.room.players.map((p) => ({
+            player: p,
+            answers: state.room.submissionsByPlayer[p.id] || createEmptyAnswers(),
+          }));
+          const res = scoreRound(state.room.currentRound, state.room.targetLetter, subs, state.room.overrides);
+          const idx = state.room.roundResults.findIndex((r) => r.roundNumber === res.roundNumber);
+          if (idx >= 0) state.room.roundResults[idx] = res;
+          else state.room.roundResults.push(res);
+          state.room.phase = "results";
+          soundFx.playTimeUp();
+          broadcastRoom();
+          render();
+        }
+
+        if (bc) {
+          bc.onmessage = (ev) => {
+            const msg = ev.data || {};
+            if (msg.type === "room:find" && state.room && state.room.hostId === myClientId && msg.roomCode === state.room.roomCode) {
+              const joining = msg.player;
+              if (!state.room.players.some((p) => p.id === joining.id)) {
+                state.room.players.push(joining);
+                state.room.submissionsByPlayer[joining.id] = createEmptyAnswers();
+              }
+              broadcastRoom();
+              render();
+            } else if (msg.type === "room:sync" && msg.room) {
+              const incoming = msg.room;
+              const amInRoom = incoming.players.some((p) => p.id === myClientId);
+              if (amInRoom || (state.joinCode && incoming.roomCode === state.joinCode && !state.room)) {
+                const prevRound = state.room ? state.room.currentRound : 0;
+                const prevPhase = state.room ? state.room.phase : "lobby";
+                state.room = incoming;
+                state.mode = "tab_sync";
+                state.phase = incoming.phase;
+                state.tabError = "";
+                if (incoming.phase === "playing" && (prevPhase !== "playing" || prevRound !== incoming.currentRound)) {
+                  state.answers = createEmptyAnswers();
+                  state.submittedTab = false;
+                  soundFx.playStart();
+                }
+                if (incoming.phase === "gameover" && prevPhase !== "gameover") {
+                  soundFx.playVictory();
+                }
+                if (incoming.phase === "playing" && incoming.hostId !== myClientId) {
+                  // Guest uses host's timer updates via sync; just update HUD if already on playing screen
+                  if (document.getElementById("play-sheet-form")) {
+                    updateHudTimerOnly();
+                    const statusEl = document.getElementById("tab-wait-status");
+                    if (statusEl) {
+                      statusEl.textContent = `Sheet submitted · Waiting for other players (${incoming.submittedIds.length}/${incoming.players.length})`;
+                    }
+                    return;
+                  }
+                }
+                render();
+              }
+            } else if (msg.type === "room:draft" && state.room && state.room.hostId === myClientId && msg.roomCode === state.room.roomCode) {
+              state.room.submissionsByPlayer[msg.playerId] = msg.answers;
+              if (msg.submit && !state.room.submittedIds.includes(msg.playerId)) {
+                state.room.submittedIds.push(msg.playerId);
+                if (state.room.submittedIds.length >= state.room.players.length) {
+                  finalizeTabRoomRound();
+                } else {
+                  broadcastRoom();
+                }
+              }
+            }
+          };
+        }
+
+        // =====================================================================
+        // 5. ACTIONS
+        // =====================================================================
+        function startLocalGame() {
+          const roster =
+            state.mode === "solo"
+              ? [
+                  { id: "human_1", name: state.soloName.trim() || "Player 1" },
+                  ...Array.from({ length: state.botCount }, (_, i) => ({
+                    id: "bot_" + (i + 1),
+                    name: BOT_NAMES[i] || "Bot " + (i + 1),
+                    isBot: true,
+                  })),
+                ]
+              : state.localPlayers.map((p, idx) => ({
+                  id: p.id,
+                  name: p.name.trim() || "Player " + (idx + 1),
+                }));
+
+          state.activePlayers = roster;
+          state.roundResults = [];
+          state.usedLetters = [];
+          beginLocalRound(1);
+        }
+
+        function beginLocalRound(roundNum) {
+          const letter = state.letterMode === "manual" ? state.manualLetter.toUpperCase() : pickNextLetter(state.usedLetters);
+          state.currentRound = roundNum;
+          state.targetLetter = letter;
+          if (!state.usedLetters.includes(letter)) state.usedLetters.push(letter);
+          state.turnIndex = 0;
+          state.roundSubmissions = [];
+          state.overrides = {};
+          state.answers = createEmptyAnswers();
+          state.timeLeft = state.timerSeconds;
+          state.paused = false;
+
+          if (state.mode === "pass_and_play") {
+            stopTimer();
+            state.phase = "handoff";
+          } else {
+            state.phase = "playing";
+            soundFx.playStart();
+            startTimer();
+          }
+          render();
+        }
+
+        function submitLocalTurn(isTimeout = false) {
+          stopTimer();
+          const humans = state.activePlayers.filter((p) => !p.isBot);
+          const currentPlayer = humans[state.turnIndex];
+          if (!currentPlayer) return;
+
+          if (isTimeout) soundFx.playTimeUp();
+          else soundFx.playSubmit();
+
+          state.roundSubmissions.push({ player: currentPlayer, answers: { ...state.answers } });
+
+          if (state.turnIndex + 1 < humans.length) {
+            state.turnIndex += 1;
+            state.answers = createEmptyAnswers();
+            state.timeLeft = state.timerSeconds;
+            state.phase = "handoff";
+            render();
+            return;
+          }
+
+          const botSubs = state.activePlayers
+            .filter((p) => p.isBot)
+            .map((bot) => ({ player: bot, answers: pickBotAnswers(state.targetLetter, state.botDifficulty) }));
+
+          state.roundSubmissions = [...state.roundSubmissions, ...botSubs];
+          const scored = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.overrides);
+          state.roundResults.push(scored);
+          state.phase = "results";
+          render();
+        }
+
+        function createTabRoom() {
+          const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+          let code = "";
+          for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+          const name = state.tabName.trim() || "Host";
+          state.room = {
+            roomCode: code,
+            hostId: myClientId,
+            phase: "lobby",
+            players: [{ id: myClientId, name }],
+            currentRound: 0,
+            totalRounds: state.totalRounds,
+            timerSeconds: state.timerSeconds,
+            timeLeft: state.timerSeconds,
+            targetLetter: state.manualLetter,
+            letterMode: state.letterMode,
+            usedLetters: [],
+            submissionsByPlayer: { [myClientId]: createEmptyAnswers() },
+            submittedIds: [],
+            roundResults: [],
+            overrides: {},
+          };
+          state.phase = "lobby";
+          state.tabError = "";
+          broadcastRoom();
+          render();
+        }
+
+        function joinTabRoom() {
+          const code = state.joinCode.trim().toUpperCase();
+          if (!code) return;
+          const name = state.tabName.trim() || "Player";
+          state.tabError = "";
+          if (bc) {
+            bc.postMessage({ type: "room:find", roomCode: code, player: { id: myClientId, name } });
+            setTimeout(() => {
+              if (!state.room) {
+                state.tabError = `No open tab found for Room "${code}". Open another tab on this browser first.`;
+                render();
+              }
+            }, 600);
+          } else {
+            state.tabError = "Cross-tab BroadcastChannel is unavailable in this browser.";
+            render();
+          }
+        }
+
+        // =====================================================================
+        // 6. VIEW RENDERERS
+        // =====================================================================
+        function renderTitle() {
+          const modeTab = (id, label) => `
+            <button type="button" data-action="set-mode" data-mode="${id}"
+              class="flex items-center justify-center gap-1.5 rounded-md px-2 sm:px-3 py-2.5 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
+                state.mode === id ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }">${label}</button>`;
+
+          let modePanel = "";
+          if (state.mode === "solo") {
+            modePanel = `
+              <div class="space-y-4 border-t border-slate-100 pt-5">
+                <div>
+                  <label for="solo-name" class="block text-sm font-semibold text-slate-800">Your Name</label>
+                  <input id="solo-name" type="text" maxlength="24" value="${escapeHtml(state.soloName)}"
+                    class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20" />
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <span class="block text-sm font-semibold text-slate-800">Bot Opponents</span>
+                    <div class="mt-1.5 flex gap-1.5 rounded-lg bg-slate-100 p-1">
+                      ${[1, 2, 3].map((c) => `
+                        <button type="button" data-action="set-bot-count" data-count="${c}"
+                          class="flex-1 rounded-md py-2 text-xs font-semibold ${state.botCount === c ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">
+                          ${c} ${c === 1 ? "Bot" : "Bots"}
+                        </button>`).join("")}
+                    </div>
+                  </div>
+                  <div>
+                    <span class="block text-sm font-semibold text-slate-800">Bot Skill</span>
+                    <div class="mt-1.5 flex gap-1.5 rounded-lg bg-slate-100 p-1">
+                      ${["casual", "sharp"].map((lvl) => `
+                        <button type="button" data-action="set-bot-skill" data-skill="${lvl}"
+                          class="flex-1 rounded-md py-2 text-xs font-semibold capitalize ${state.botDifficulty === lvl ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">
+                          ${lvl}
+                        </button>`).join("")}
+                    </div>
+                  </div>
+                </div>
+              </div>`;
+          } else if (state.mode === "pass_and_play") {
+            modePanel = `
+              <div class="space-y-3 border-t border-slate-100 pt-5">
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-semibold text-slate-800">Players (${state.localPlayers.length}/6)</span>
+                  <button type="button" data-action="add-player" ${state.localPlayers.length >= 6 ? "disabled" : ""}
+                    class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+                    + Add Player
+                  </button>
+                </div>
+                <div class="space-y-2">
+                  ${state.localPlayers.map((p, i) => `
+                    <div class="flex items-center gap-2">
+                      <span class="w-6 font-mono-tabular text-xs font-semibold text-slate-400">${i + 1}.</span>
+                      <input type="text" maxlength="24" data-player-id="${p.id}" value="${escapeHtml(p.name)}"
+                        class="local-player-input flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20" />
+                      ${state.localPlayers.length > 2 ? `<button type="button" data-action="remove-player" data-id="${p.id}" class="rounded-lg px-2.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50">Remove</button>` : ""}
+                    </div>`).join("")}
+                </div>
+                <p class="text-xs text-slate-500">A privacy curtain appears between turns so players cannot peek at earlier answers.</p>
+              </div>`;
+          } else {
+            modePanel = `
+              <div class="space-y-4 border-t border-slate-100 pt-5">
+                <div>
+                  <label for="tab-name" class="block text-sm font-semibold text-slate-800">Your Display Name</label>
+                  <input id="tab-name" type="text" maxlength="24" value="${escapeHtml(state.tabName)}"
+                    class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20" />
+                </div>
+                ${state.tabError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.tabError)}</p>` : ""}
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <button type="button" data-action="create-tab-room"
+                    class="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">
+                    Create Tab Room
+                  </button>
+                  <div class="flex gap-2">
+                    <input id="join-code" type="text" maxlength="6" placeholder="CODE" value="${escapeHtml(state.joinCode)}"
+                      class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center font-mono-tabular text-sm font-bold uppercase tracking-widest focus:border-emerald-600 focus:outline-none" />
+                    <button type="button" data-action="join-tab-room"
+                      class="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+                      Join
+                    </button>
+                  </div>
+                </div>
+                <p class="text-xs text-slate-500">Open this HTML file in multiple tabs on the same browser to sync rooms in real time.</p>
+              </div>`;
+          }
+
+          return `
+            <main class="mx-auto flex min-h-screen max-w-5xl flex-col justify-between px-4 py-6 sm:px-8 sm:py-10">
+              <div class="space-y-8">
+                <section class="flex flex-col gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-center md:justify-between">
+                  <div class="flex items-start gap-4">
+                    <svg viewBox="0 0 64 64" class="h-12 w-12 shrink-0" aria-hidden="true">
+                      <rect x="6" y="8" width="52" height="48" rx="10" fill="#065F46"></rect>
+                      <rect x="10" y="12" width="44" height="40" rx="6" fill="#FFFFFF"></rect>
+                      <line x1="16" y1="24" x2="48" y2="24" stroke="#E2E8F0" stroke-width="2"></line>
+                      <line x1="16" y1="34" x2="48" y2="34" stroke="#E2E8F0" stroke-width="2"></line>
+                      <line x1="16" y1="44" x2="38" y2="44" stroke="#E2E8F0" stroke-width="2"></line>
+                      <circle cx="45" cy="43" r="10" fill="#059669" stroke="#FFFFFF" stroke-width="2.5"></circle>
+                      <text x="45" y="47" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">അ</text>
+                      <text x="32" y="21" text-anchor="middle" fill="#0F172A" font-size="10" font-weight="800">A–Z</text>
+                    </svg>
+                    <div>
+                      <p class="text-xs font-semibold tracking-wide text-emerald-700">പേര് · സ്ഥലം · മൃഗം · പൂവ് · സാധനം</p>
+                      <h1 class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Name, Place, Animal, Thing</h1>
+                      <p class="mt-1 text-sm text-slate-600">10 pts unique word · 5 pts shared word · 0 pts blank or wrong letter</p>
+                    </div>
+                  </div>
+                  <div class="inline-flex self-start rounded-lg bg-slate-100 p-1">
+                    ${[
+                      { id: "bilingual", label: "ML + EN" },
+                      { id: "english", label: "English" },
+                      { id: "malayalam", label: "മലയാളം" },
+                    ].map((l) => `
+                      <button type="button" data-action="set-lang" data-lang="${l.id}"
+                        class="rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap ${
+                          state.language === l.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                        }">${l.label}</button>`).join("")}
+                  </div>
+                </section>
+
+                <div class="grid gap-8 lg:grid-cols-12 items-start">
+                  <section class="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-7">
+                    <div>
+                      <h2 class="text-sm font-bold text-slate-900">1. Choose Game Mode</h2>
+                      <div class="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1">
+                        ${modeTab("solo", "Solo vs Bot")}
+                        ${modeTab("pass_and_play", "Pass & Play")}
+                        ${modeTab("tab_sync", "Tab Sync")}
+                      </div>
+                    </div>
+                    ${modePanel}
+                  </section>
+
+                  <section class="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-5">
+                    <h2 class="text-sm font-bold text-slate-900">2. Round & Letter Rules</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                      <div>
+                        <span class="block text-xs font-semibold text-slate-600">Rounds</span>
+                        <div class="mt-1.5 flex gap-1 rounded-lg bg-slate-100 p-1">
+                          ${[1, 3, 5].map((r) => `
+                            <button type="button" data-action="set-rounds" data-rounds="${r}"
+                              class="flex-1 rounded-md py-1.5 font-mono-tabular text-xs font-semibold ${state.totalRounds === r ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">${r}</button>`).join("")}
+                        </div>
+                      </div>
+                      <div>
+                        <span class="block text-xs font-semibold text-slate-600">Timer</span>
+                        <div class="mt-1.5 flex gap-1 rounded-lg bg-slate-100 p-1">
+                          ${[30, 60, 90].map((s) => `
+                            <button type="button" data-action="set-timer" data-sec="${s}"
+                              class="flex-1 rounded-md py-1.5 font-mono-tabular text-xs font-semibold ${state.timerSeconds === s ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">${s}s</button>`).join("")}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="space-y-3 border-t border-slate-100 pt-4">
+                      <span class="block text-xs font-semibold text-slate-600">Starting Letter</span>
+                      <div class="grid grid-cols-2 gap-1.5 rounded-lg bg-slate-100 p-1">
+                        <button type="button" data-action="set-letter-mode" data-lmode="random"
+                          class="rounded-md px-3 py-2 text-xs font-semibold ${state.letterMode === "random" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">Random Spin</button>
+                        <button type="button" data-action="set-letter-mode" data-lmode="manual"
+                          class="rounded-md px-3 py-2 text-xs font-semibold ${state.letterMode === "manual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">Pick A–Z</button>
+                      </div>
+                      ${state.letterMode === "manual" ? `
+                        <div class="grid grid-cols-7 gap-1 pt-1">
+                          ${ALPHABET.map((l) => `
+                            <button type="button" data-action="set-manual-letter" data-letter="${l}"
+                              class="h-8 rounded-md font-display text-xs font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${l}</button>`).join("")}
+                        </div>` : ""}
+                    </div>
+
+                    ${state.mode !== "tab_sync" ? `
+                      <button type="button" data-action="start-local"
+                        class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors">
+                        Start Game
+                      </button>` : ""}
+                  </section>
+                </div>
+              </div>
+              <p class="mt-8 pt-2 text-center text-xs text-slate-500">
+                Enter to jump between categories · Esc to pause · Works with English or Malayalam input
+              </p>
+            </main>`;
+        }
+
+        function renderLobby() {
+          const r = state.room;
+          const isHost = r.hostId === myClientId;
+          return `
+            <main class="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
+              <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 space-y-6">
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                  <div>
+                    <p class="text-xs font-semibold text-emerald-700">Live Tab Room Sync</p>
+                    <h1 class="mt-1 font-display text-2xl font-extrabold text-slate-900">Room ${escapeHtml(r.roomCode)}</h1>
+                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">${r.totalRounds} rounds · ${r.timerSeconds}s per round</p>
+                  </div>
+                  <button type="button" data-action="copy-room-code"
+                    class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                    Copy Code
+                  </button>
+                </div>
+                <div>
+                  <h2 class="text-sm font-bold text-slate-800">Connected Players (${r.players.length})</h2>
+                  <ul class="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                    ${r.players.map((p) => `
+                      <li class="flex items-center justify-between px-4 py-2.5 text-sm">
+                        <span class="font-semibold text-slate-900">${escapeHtml(p.name)}${p.id === myClientId ? " (You)" : ""}</span>
+                        <span class="text-xs font-medium text-slate-500">${p.id === r.hostId ? "Host" : "Player"}</span>
+                      </li>`).join("")}
+                  </ul>
+                </div>
+                <div class="flex flex-col gap-3 sm:flex-row">
+                  ${isHost
+                    ? `<button type="button" data-action="start-tab-round" class="flex-1 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Start Round 1</button>`
+                    : `<div class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-slate-600">Waiting for host to start...</div>`}
+                  <button type="button" data-action="exit-menu" class="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Leave</button>
+                </div>
+              </section>
+            </main>`;
+        }
+
+        function renderHandoff() {
+          const humans = state.activePlayers.filter((p) => !p.isBot);
+          const player = humans[state.turnIndex];
+          return `
+            <main class="mx-auto flex min-h-screen max-w-xl items-center justify-center px-4 py-10">
+              <section class="w-full rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                <p class="text-xs font-semibold text-slate-500 font-mono-tabular">
+                  Round ${state.currentRound} of ${state.totalRounds} · Turn ${state.turnIndex + 1} of ${humans.length}
+                </p>
+                <h1 class="mt-2 font-display text-2xl font-extrabold text-slate-900 sm:text-3xl">
+                  Pass device to ${escapeHtml(player.name)}
+                </h1>
+                <p class="mt-2 text-sm text-slate-600">
+                  Previous answers are hidden. When ${escapeHtml(player.name)} is ready, reveal the sheet for letter
+                  <span class="font-display font-extrabold text-emerald-800">${state.targetLetter}</span>.
+                </p>
+                <div class="mx-auto mt-6 flex h-16 w-16 items-center justify-center rounded-xl bg-emerald-700 font-display text-3xl font-extrabold text-white">
+                  ${state.targetLetter}
+                </div>
+                <button type="button" data-action="reveal-handoff"
+                  class="mt-7 w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">
+                  Reveal ${escapeHtml(player.name)}'s Sheet
+                </button>
+              </section>
+            </main>`;
+        }
+
+        function renderPlaying() {
+          const isTab = state.mode === "tab_sync" && state.room;
+          const letter = isTab ? state.room.targetLetter : state.targetLetter;
+          const round = isTab ? state.room.currentRound : state.currentRound;
+          const totalRounds = isTab ? state.room.totalRounds : state.totalRounds;
+          const timeLeft = isTab ? state.room.timeLeft : state.timeLeft;
+          const maxSec = isTab ? state.room.timerSeconds : state.timerSeconds;
+          const playerName = isTab
+            ? (state.room.players.find((p) => p.id === myClientId) || {}).name
+            : (state.activePlayers.filter((p) => !p.isBot)[state.turnIndex] || {}).name;
+
+          const ratio = maxSec > 0 ? Math.max(0, Math.min(100, (timeLeft / maxSec) * 100)) : 0;
+          const urgent = timeLeft <= 10;
+          const readyCount = CATEGORIES.filter((c) => validateWordForLetter(state.answers[c.id], letter, c.id).valid).length;
+
+          return `
+            <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
+              <div class="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+                <div class="flex items-center gap-4 min-w-0">
+                  <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-700 font-display text-2xl font-extrabold text-white">${letter}</div>
+                  <div class="min-w-0">
+                    <div class="text-xs font-semibold text-slate-500 font-mono-tabular">
+                      Round ${round} of ${totalRounds}${isTab ? ` · Room ${escapeHtml(state.room.roomCode)}` : ""}
+                    </div>
+                    <p class="truncate text-sm font-bold text-slate-900">${escapeHtml(playerName || "Player")}'s Sheet</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-3 shrink-0">
+                  <div class="w-28 sm:w-36">
+                    <div class="flex items-baseline justify-between text-xs font-semibold">
+                      <span id="hud-timer-label" class="${urgent ? "text-red-700" : "text-slate-500"}">${urgent ? "Hurry" : "Time"}</span>
+                      <span id="hud-timer-text" class="font-mono-tabular text-base font-bold ${urgent ? "text-red-700" : "text-slate-900"}">${timeLeft}s</span>
+                    </div>
+                    <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div id="hud-timer-bar" class="h-full transition-[width] duration-300 ${urgent ? "bg-red-600" : "bg-emerald-600"}" style="width:${ratio}%"></div>
+                    </div>
+                  </div>
+                  <button type="button" data-action="toggle-mute"
+                    class="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                    ${soundFx.isMuted() ? "Unmute" : "Mute"}
+                  </button>
+                  ${!isTab ? `
+                    <button type="button" data-action="toggle-pause"
+                      class="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                      Pause
+                    </button>` : ""}
+                </div>
+              </div>
+            </header>
+
+            <main class="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+              <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm font-medium text-slate-600">
+                  Write a word starting with <span class="font-display text-base font-extrabold text-emerald-800">${letter}</span> for each category ·
+                  <span id="ready-count" class="font-mono-tabular text-xs font-semibold text-slate-700">${readyCount}/5 ready</span>
+                </p>
+                <button type="button" data-action="toggle-hints"
+                  class="rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                    state.hintsEnabled ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-600"
+                  }">
+                  Word Hints: ${state.hintsEnabled ? "On" : "Off"}
+                </button>
+              </div>
+
+              <form id="play-sheet-form" class="notebook-paper rounded-xl border border-slate-200 p-5 shadow-sm sm:p-7 space-y-5">
+                ${CATEGORIES.map((cat, idx) => {
+                  const val = state.answers[cat.id];
+                  const v = validateWordForLetter(val, letter, cat.id);
+                  const lbl = formatCatLabel(cat);
+                  const showErr = val.trim().length > 0 && !v.valid;
+                  const showOk = val.trim().length > 0 && v.valid;
+                  const pool = state.hintsEnabled ? ((WORD_DICTIONARY[letter] || {})[cat.id] || []).slice(0, 4) : [];
+                  return `
+                    <div class="border-b border-slate-200/80 pb-5 last:border-b-0 last:pb-0">
+                      <div class="flex flex-wrap items-baseline justify-between gap-2">
+                        <label for="cat-${cat.id}" class="flex items-baseline gap-2 text-base font-bold text-slate-900">
+                          <span class="font-mono-tabular text-xs font-semibold text-slate-400">0${idx + 1}.</span>
+                          <span>${escapeHtml(lbl.primary)}</span>
+                          ${lbl.secondary ? `<span class="text-sm font-medium text-slate-500">${escapeHtml(lbl.secondary)}</span>` : ""}
+                        </label>
+                        <span id="status-${cat.id}" class="text-xs font-semibold ${
+                          showOk ? "text-emerald-700" : showErr ? "text-red-700" : "hidden"
+                        }">${showOk || showErr ? escapeHtml(v.message) : ""}</span>
+                      </div>
+                      <input id="cat-${cat.id}" data-cat="${cat.id}" data-idx="${idx}" type="text" autocomplete="off"
+                        ${state.submittedTab ? "disabled" : ""}
+                        value="${escapeHtml(val)}"
+                        placeholder="${escapeHtml(state.language === "malayalam" ? cat.placeholderMl : cat.placeholderEn)}"
+                        class="cat-input mt-2 w-full rounded-lg border px-3.5 py-2.5 text-base font-medium text-slate-900 focus:outline-none focus:ring-2 ${
+                          showErr
+                            ? "border-red-400 bg-red-50/40 focus:border-red-600 focus:ring-red-600/15"
+                            : showOk
+                              ? "border-emerald-400 bg-emerald-50/20 focus:border-emerald-600 focus:ring-emerald-600/20"
+                              : "border-slate-300 bg-white focus:border-emerald-600 focus:ring-emerald-600/20"
+                        }" />
+                      ${pool.length && !state.submittedTab ? `
+                        <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span class="text-xs text-slate-400">Try:</span>
+                          ${pool.map((w) => `
+                            <button type="button" data-action="pick-hint" data-cat="${cat.id}" data-word="${escapeHtml(w)}"
+                              class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700 hover:border-emerald-300 hover:bg-emerald-50">${escapeHtml(w)}</button>`).join("")}
+                        </div>` : ""}
+                    </div>`;
+                }).join("")}
+
+                <div class="pt-2">
+                  ${state.submittedTab
+                    ? `<div id="tab-wait-status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-900">
+                         Sheet submitted · Waiting for other players (${state.room.submittedIds.length}/${state.room.players.length})
+                       </div>`
+                    : `<button type="submit" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors">Submit Sheet</button>`}
+                </div>
+              </form>
+            </main>
+
+            ${state.paused ? `
+              <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4" role="dialog" aria-modal="true">
+                <div class="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-lg space-y-5">
+                  <div>
+                    <h2 class="font-display text-xl font-extrabold text-slate-900">Game Paused</h2>
+                    <p class="mt-1 text-sm text-slate-600">Countdown timer is frozen while paused.</p>
+                  </div>
+                  <div class="space-y-2.5">
+                    <button type="button" data-action="toggle-pause" class="w-full rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-800">Resume Game</button>
+                    <button type="button" data-action="restart-round" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Restart Round</button>
+                    <button type="button" data-action="exit-menu" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Exit to Main Menu</button>
+                  </div>
+                </div>
+              </div>` : ""}`;
+        }
+
+        function renderResults() {
+          const isTab = state.mode === "tab_sync" && state.room;
+          const players = isTab ? state.room.players : state.activePlayers;
+          const resultsList = isTab ? state.room.roundResults : state.roundResults;
+          const result = resultsList[resultsList.length - 1];
+          const totalRounds = isTab ? state.room.totalRounds : state.totalRounds;
+          const canModerate = !isTab || state.room.hostId === myClientId;
+          const standings = calculateStandings(players, resultsList);
+          const isFinal = result.roundNumber >= totalRounds;
+
+          return `
+            <main class="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10 space-y-8">
+              <section class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-center gap-4">
+                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-700 font-display text-2xl font-extrabold text-white">${result.letter}</div>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-500 font-mono-tabular">Round ${result.roundNumber} of ${totalRounds} Results</p>
+                    <h1 class="font-display text-2xl font-extrabold text-slate-900">Letter "${result.letter}" Scorecard</h1>
+                  </div>
+                </div>
+                <div class="text-xs font-medium text-slate-600">10 pts unique · 5 pts shared · 0 pts blank or invalid</div>
+              </section>
+
+              <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table class="w-full min-w-[640px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr class="border-b border-slate-200 bg-slate-50">
+                      <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
+                      ${result.playerScores.map((ps) => `
+                        <th class="px-4 py-3.5 font-bold text-slate-900">
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="truncate">${escapeHtml(ps.playerName)}</span>
+                            <span class="font-mono-tabular text-xs font-bold text-emerald-700">${ps.roundTotal} pts</span>
+                          </div>
+                        </th>`).join("")}
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${CATEGORIES.map((cat) => {
+                      const lbl = formatCatLabel(cat);
+                      return `
+                        <tr>
+                          <td class="px-4 py-3.5 align-top font-semibold text-slate-800">
+                            <div>${escapeHtml(lbl.primary)}</div>
+                            ${lbl.secondary ? `<div class="text-xs font-normal text-slate-500">${escapeHtml(lbl.secondary)}</div>` : ""}
+                          </td>
+                          ${result.playerScores.map((ps) => {
+                            const c = ps.cells[cat.id];
+                            const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
+                            const canVeto = canModerate && c.raw.trim().length > 0 && c.status !== "wrong_letter";
+                            return `
+                              <td class="px-4 py-3.5 align-top">
+                                <div class="flex items-start justify-between gap-2">
+                                  <div class="min-w-0">
+                                    <p class="font-semibold break-words ${c.points === 0 ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
+                                    <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
+                                  </div>
+                                  <div class="flex flex-col items-end gap-1 shrink-0">
+                                    <span class="font-mono-tabular text-xs font-bold ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
+                                    ${canVeto ? `
+                                      <button type="button" data-action="toggle-veto" data-pid="${ps.playerId}" data-cat="${cat.id}"
+                                        class="text-[11px] font-semibold underline ${c.overriddenInvalid ? "text-emerald-700" : "text-slate-500 hover:text-slate-800"}">
+                                        ${c.overriddenInvalid ? "Accept" : "Veto"}
+                                      </button>` : ""}
+                                  </div>
+                                </div>
+                              </td>`;
+                          }).join("")}
+                        </tr>`;
+                    }).join("")}
+                  </tbody>
+                </table>
+              </section>
+
+              <div class="grid gap-6 lg:grid-cols-12 items-start">
+                <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-7">
+                  <h2 class="text-sm font-bold text-slate-900">Cumulative Standings</h2>
+                  <div class="mt-3 divide-y divide-slate-100">
+                    ${standings.map((s) => `
+                      <div class="flex items-center justify-between gap-4 py-2.5 text-sm">
+                        <div class="flex items-center gap-3 min-w-0">
+                          <span class="w-6 font-mono-tabular text-xs font-bold text-slate-500">#${s.rank}</span>
+                          <span class="truncate font-semibold text-slate-900">${escapeHtml(s.playerName)}</span>
+                        </div>
+                        <div class="flex items-center gap-4 text-xs text-slate-500 shrink-0 font-mono-tabular">
+                          <span>${s.uniqueCount} unique</span>
+                          <span class="text-sm font-bold text-slate-900">${s.totalScore} pts</span>
+                        </div>
+                      </div>`).join("")}
+                  </div>
+                </section>
+
+                <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-5 space-y-3">
+                  ${canModerate
+                    ? isFinal
+                      ? `<button type="button" data-action="finish-game" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">View Final Winner Podium</button>`
+                      : `<button type="button" data-action="next-round" class="w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Start Round ${result.roundNumber + 1}</button>
+                         <button type="button" data-action="finish-game" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">End Match Early & Show Podium</button>`
+                    : `<p class="text-center text-sm font-medium text-slate-600">Waiting for host to advance...</p>`}
+                </section>
+              </div>
+            </main>`;
+        }
+
+        function renderPodium() {
+          const isTab = state.mode === "tab_sync" && state.room;
+          const players = isTab ? state.room.players : state.activePlayers;
+          const resultsList = isTab ? state.room.roundResults : state.roundResults;
+          const standings = calculateStandings(players, resultsList);
+          const winners = standings.filter((s) => s.rank === 1);
+          const winner = winners[0];
+          const headline = winners.length > 1
+            ? `Tie for 1st: ${winners.map((w) => w.playerName).join(" & ")}`
+            : winner ? `${winner.playerName} Wins!` : "Final Standings";
+
+          const top3 = standings.slice(0, 3);
+          const slots = top3.length === 3 ? [top3[1], top3[0], top3[2]] : top3;
+
+          return `
+            <main class="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12 space-y-8">
+              <section class="rounded-xl border border-slate-200 bg-white p-7 text-center shadow-sm">
+                <p class="text-xs font-semibold text-emerald-700">Match Complete · ${resultsList.length} ${resultsList.length === 1 ? "Round" : "Rounds"} Played</p>
+                <h1 class="mt-1 font-display text-3xl font-extrabold text-slate-900 sm:text-4xl">${escapeHtml(headline)}</h1>
+                ${winner ? `<p class="mt-2 text-sm text-slate-600 font-mono-tabular">${winner.totalScore} total points · ${winner.uniqueCount} unique · ${winner.sharedCount} shared</p>` : ""}
+              </section>
+
+              <section class="grid gap-4 items-end ${slots.length === 3 ? "sm:grid-cols-3" : slots.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1 max-w-sm mx-auto"}">
+                ${slots.map((entry) => `
+                  <div class="rounded-xl border bg-white p-5 text-center shadow-sm ${entry.rank === 1 ? "border-amber-300 ring-2 ring-amber-400/25 sm:pb-8 sm:pt-7" : "border-slate-200"}">
+                    <p class="font-mono-tabular text-xs font-bold text-slate-500">Rank #${entry.rank}</p>
+                    <h2 class="mt-1 truncate font-display text-xl font-extrabold text-slate-900">${escapeHtml(entry.playerName)}</h2>
+                    <p class="mt-2 font-mono-tabular text-2xl font-extrabold text-emerald-700">${entry.totalScore} <span class="text-xs font-semibold text-slate-500">pts</span></p>
+                    <p class="mt-1 text-xs text-slate-500 font-mono-tabular">${entry.uniqueCount} unique · ${entry.sharedCount} shared</p>
+                  </div>`).join("")}
+              </section>
+
+              <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table class="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr class="border-b border-slate-200 bg-slate-50">
+                      <th class="px-4 py-3 font-semibold text-slate-700">Rank</th>
+                      <th class="px-4 py-3 font-semibold text-slate-700">Player</th>
+                      ${resultsList.map((r) => `<th class="px-3 py-3 text-right font-mono-tabular text-xs font-semibold text-slate-600">R${r.roundNumber} (${r.letter})</th>`).join("")}
+                      <th class="px-4 py-3 text-right font-semibold text-slate-900">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${standings.map((s) => `
+                      <tr>
+                        <td class="px-4 py-3 font-mono-tabular text-xs font-bold text-slate-500">#${s.rank}</td>
+                        <td class="px-4 py-3 font-semibold text-slate-900">${escapeHtml(s.playerName)}</td>
+                        ${resultsList.map((r) => {
+                          const ps = r.playerScores.find((p) => p.playerId === s.playerId);
+                          return `<td class="px-3 py-3 text-right font-mono-tabular text-xs text-slate-600">${ps ? ps.roundTotal : 0}</td>`;
+                        }).join("")}
+                        <td class="px-4 py-3 text-right font-mono-tabular text-sm font-bold text-emerald-700">${s.totalScore}</td>
+                      </tr>`).join("")}
+                  </tbody>
+                </table>
+              </section>
+
+              <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                ${(!isTab || state.room.hostId === myClientId) ? `<button type="button" data-action="play-again" class="rounded-lg bg-emerald-700 px-6 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Play Again</button>` : ""}
+                <button type="button" data-action="exit-menu" class="rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Main Menu</button>
+              </div>
+            </main>`;
+        }
+
+        function render() {
+          const root = document.getElementById("app");
+          if (state.phase === "title") root.innerHTML = renderTitle();
+          else if (state.phase === "lobby") root.innerHTML = renderLobby();
+          else if (state.phase === "handoff") root.innerHTML = renderHandoff();
+          else if (state.phase === "playing") root.innerHTML = renderPlaying();
+          else if (state.phase === "results") root.innerHTML = renderResults();
+          else if (state.phase === "gameover") root.innerHTML = renderPodium();
+
+          if (state.phase === "playing" && !state.paused && !state.submittedTab) {
+            const first = document.getElementById("cat-name");
+            if (first && document.activeElement === document.body) first.focus();
+          }
+        }
+
+        // =====================================================================
+        // 7. EVENT DELEGATION
+        // =====================================================================
+        document.addEventListener("input", (e) => {
+          const t = e.target;
+          if (t.id === "solo-name") { state.soloName = t.value; return; }
+          if (t.id === "tab-name") { state.tabName = t.value; return; }
+          if (t.id === "join-code") { state.joinCode = t.value.toUpperCase(); return; }
+          if (t.classList.contains("local-player-input")) {
+            const pid = t.dataset.playerId;
+            const p = state.localPlayers.find((x) => x.id === pid);
+            if (p) p.name = t.value;
+            return;
+          }
+          if (t.classList.contains("cat-input")) {
+            const cat = t.dataset.cat;
+            state.answers[cat] = t.value;
+            const letter = state.mode === "tab_sync" && state.room ? state.room.targetLetter : state.targetLetter;
+            const v = validateWordForLetter(t.value, letter, cat);
+            const showErr = t.value.trim().length > 0 && !v.valid;
+            const showOk = t.value.trim().length > 0 && v.valid;
+            const statusEl = document.getElementById("status-" + cat);
+            if (statusEl) {
+              statusEl.textContent = showOk || showErr ? v.message : "";
+              statusEl.className = "text-xs font-semibold " + (showOk ? "text-emerald-700" : showErr ? "text-red-700" : "hidden");
+            }
+            t.className = "cat-input mt-2 w-full rounded-lg border px-3.5 py-2.5 text-base font-medium text-slate-900 focus:outline-none focus:ring-2 " +
+              (showErr ? "border-red-400 bg-red-50/40 focus:border-red-600 focus:ring-red-600/15"
+                : showOk ? "border-emerald-400 bg-emerald-50/20 focus:border-emerald-600 focus:ring-emerald-600/20"
+                  : "border-slate-300 bg-white focus:border-emerald-600 focus:ring-emerald-600/20");
+
+            const readyEl = document.getElementById("ready-count");
+            if (readyEl) {
+              const ready = CATEGORIES.filter((c) => validateWordForLetter(state.answers[c.id], letter, c.id).valid).length;
+              readyEl.textContent = ready + "/5 ready";
+            }
+            if (state.mode === "tab_sync" && state.room && bc) {
+              if (state.room.hostId === myClientId) state.room.submissionsByPlayer[myClientId] = { ...state.answers };
+              else bc.postMessage({ type: "room:draft", roomCode: state.room.roomCode, playerId: myClientId, answers: state.answers, submit: false });
+            }
+          }
+        });
+
+        document.addEventListener("keydown", (e) => {
+          if (e.target.classList && e.target.classList.contains("cat-input") && e.key === "Enter") {
+            e.preventDefault();
+            const idx = Number(e.target.dataset.idx);
+            if (idx < CATEGORIES.length - 1) {
+              const next = document.querySelector(`.cat-input[data-idx="${idx + 1}"]`);
+              if (next) next.focus();
+            } else {
+              document.getElementById("play-sheet-form")?.requestSubmit();
+            }
+            return;
+          }
+          if (e.key === "Escape" && state.phase === "playing" && state.mode !== "tab_sync") {
+            state.paused = !state.paused;
+            render();
+          }
+        });
+
+        document.addEventListener("submit", (e) => {
+          if (e.target.id === "play-sheet-form") {
+            e.preventDefault();
+            if (state.mode === "tab_sync" && state.room) {
+              if (state.submittedTab) return;
+              state.submittedTab = true;
+              soundFx.playSubmit();
+              if (state.room.hostId === myClientId) {
+                state.room.submissionsByPlayer[myClientId] = { ...state.answers };
+                if (!state.room.submittedIds.includes(myClientId)) state.room.submittedIds.push(myClientId);
+                if (state.room.submittedIds.length >= state.room.players.length) finalizeTabRoomRound();
+                else { broadcastRoom(); render(); }
+              } else if (bc) {
+                bc.postMessage({ type: "room:draft", roomCode: state.room.roomCode, playerId: myClientId, answers: state.answers, submit: true });
+                render();
+              }
+            } else {
+              submitLocalTurn(false);
+            }
+          }
+        });
+
+        document.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-action]");
+          if (!btn) return;
+          const act = btn.dataset.action;
+
+          if (act === "set-mode") { state.mode = btn.dataset.mode; state.tabError = ""; render(); }
+          else if (act === "set-lang") { state.language = btn.dataset.lang; render(); }
+          else if (act === "set-bot-count") { state.botCount = Number(btn.dataset.count); render(); }
+          else if (act === "set-bot-skill") { state.botDifficulty = btn.dataset.skill; render(); }
+          else if (act === "set-rounds") { state.totalRounds = Number(btn.dataset.rounds); render(); }
+          else if (act === "set-timer") { state.timerSeconds = Number(btn.dataset.sec); render(); }
+          else if (act === "set-letter-mode") { state.letterMode = btn.dataset.lmode; render(); }
+          else if (act === "set-manual-letter") { state.manualLetter = btn.dataset.letter; render(); }
+          else if (act === "add-player" && state.localPlayers.length < 6) {
+            state.localPlayers.push({ id: "lp_" + Date.now(), name: "Player " + (state.localPlayers.length + 1) });
+            render();
+          }
+          else if (act === "remove-player") {
+            state.localPlayers = state.localPlayers.filter((p) => p.id !== btn.dataset.id);
+            render();
+          }
+          else if (act === "start-local") { startLocalGame(); }
+          else if (act === "create-tab-room") { createTabRoom(); }
+          else if (act === "join-tab-room") { joinTabRoom(); }
+          else if (act === "copy-room-code" && state.room) {
+            navigator.clipboard?.writeText(state.room.roomCode).catch(() => {});
+            btn.textContent = "Copied";
+          }
+          else if (act === "start-tab-round" && state.room) {
+            const letter = state.room.letterMode === "manual" ? state.manualLetter : pickNextLetter(state.room.usedLetters);
+            state.room.currentRound += 1;
+            state.room.targetLetter = letter;
+            if (!state.room.usedLetters.includes(letter)) state.room.usedLetters.push(letter);
+            state.room.timeLeft = state.room.timerSeconds;
+            state.room.submittedIds = [];
+            state.room.overrides = {};
+            state.room.players.forEach((p) => (state.room.submissionsByPlayer[p.id] = createEmptyAnswers()));
+            state.room.phase = "playing";
+            state.phase = "playing";
+            state.answers = createEmptyAnswers();
+            state.submittedTab = false;
+            soundFx.playStart();
+            broadcastRoom();
+            startTimer();
+            render();
+          }
+          else if (act === "reveal-handoff") {
+            state.phase = "playing";
+            soundFx.playStart();
+            startTimer();
+            render();
+          }
+          else if (act === "toggle-mute") { soundFx.toggleMute(); render(); }
+          else if (act === "toggle-pause") { state.paused = !state.paused; render(); }
+          else if (act === "restart-round") {
+            state.paused = false;
+            state.answers = createEmptyAnswers();
+            state.timeLeft = state.timerSeconds;
+            render();
+          }
+          else if (act === "toggle-hints") { state.hintsEnabled = !state.hintsEnabled; render(); }
+          else if (act === "pick-hint") {
+            state.answers[btn.dataset.cat] = btn.dataset.word;
+            render();
+          }
+          else if (act === "toggle-veto") {
+            const pid = btn.dataset.pid;
+            const cat = btn.dataset.cat;
+            if (state.mode === "tab_sync" && state.room) {
+              state.room.overrides[pid] = state.room.overrides[pid] || {};
+              state.room.overrides[pid][cat] = !state.room.overrides[pid][cat];
+              const subs = state.room.players.map((p) => ({ player: p, answers: state.room.submissionsByPlayer[p.id] || createEmptyAnswers() }));
+              const updated = scoreRound(state.room.currentRound, state.room.targetLetter, subs, state.room.overrides);
+              const idx = state.room.roundResults.findIndex((r) => r.roundNumber === updated.roundNumber);
+              if (idx >= 0) state.room.roundResults[idx] = updated;
+              broadcastRoom();
+            } else {
+              state.overrides[pid] = state.overrides[pid] || {};
+              state.overrides[pid][cat] = !state.overrides[pid][cat];
+              const updated = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.overrides);
+              state.roundResults = state.roundResults.map((r) => (r.roundNumber === state.currentRound ? updated : r));
+            }
+            render();
+          }
+          else if (act === "next-round") {
+            if (state.mode === "tab_sync" && state.room) {
+              document.querySelector('[data-action="start-tab-round"]')?.click();
+              const letter = state.room.letterMode === "manual" ? state.manualLetter : pickNextLetter(state.room.usedLetters);
+              state.room.currentRound += 1;
+              state.room.targetLetter = letter;
+              if (!state.room.usedLetters.includes(letter)) state.room.usedLetters.push(letter);
+              state.room.timeLeft = state.room.timerSeconds;
+              state.room.submittedIds = [];
+              state.room.overrides = {};
+              state.room.players.forEach((p) => (state.room.submissionsByPlayer[p.id] = createEmptyAnswers()));
+              state.room.phase = "playing";
+              state.phase = "playing";
+              state.answers = createEmptyAnswers();
+              state.submittedTab = false;
+              soundFx.playStart();
+              broadcastRoom();
+              startTimer();
+              render();
+            } else {
+              beginLocalRound(state.currentRound + 1);
+            }
+          }
+          else if (act === "finish-game") {
+            stopTimer();
+            soundFx.playVictory();
+            if (state.mode === "tab_sync" && state.room) {
+              state.room.phase = "gameover";
+              broadcastRoom();
+            }
+            state.phase = "gameover";
+            render();
+          }
+          else if (act === "play-again") {
+            if (state.mode === "tab_sync" && state.room) {
+              state.room.phase = "lobby";
+              state.room.currentRound = 0;
+              state.room.usedLetters = [];
+              state.room.roundResults = [];
+              state.room.submittedIds = [];
+              state.phase = "lobby";
+              broadcastRoom();
+              render();
+            } else {
+              startLocalGame();
+            }
+          }
+          else if (act === "exit-menu") {
+            stopTimer();
+            state.paused = false;
+            state.room = null;
+            state.phase = "title";
+            render();
+          }
+        });
+
+        render();
+      })();
+    </script>
   </body>
 </html>
