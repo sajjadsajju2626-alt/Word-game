@@ -465,7 +465,6 @@
           turnIndex: 0,
           timeLeft: 60,
           paused: false,
-          hintsEnabled: false,
           answers: createEmptyAnswers(),
           roundSubmissions: [],
           roundResults: [],
@@ -1362,12 +1361,6 @@
                   Write a word starting with <span class="font-display text-base font-extrabold text-emerald-800">${letter}</span> for each category ·
                   <span id="ready-count" class="font-mono-tabular text-xs font-semibold text-slate-700">${readyCount}/5 ready</span>
                 </p>
-                <button type="button" data-action="toggle-hints"
-                  class="rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                    state.hintsEnabled ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-600"
-                  }">
-                  Word Hints: ${state.hintsEnabled ? "On" : "Off"}
-                </button>
               </div>
 
               ${state.onlineError ? `<p class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
@@ -1379,7 +1372,9 @@
                   const lbl = formatCatLabel(cat);
                   const showErr = val.trim().length > 0 && !v.valid;
                   const showOk = val.trim().length > 0 && v.valid;
-                  const pool = state.hintsEnabled ? ((WORD_DICTIONARY[letter] || {})[cat.id] || []).slice(0, 4) : [];
+                  const inputPlaceholder = state.language === "malayalam"
+                    ? `${letter} ൽ തുടങ്ങുന്ന ${cat.ml} എഴുതുക`
+                    : `Enter ${cat.en.toLowerCase()} starting with "${letter}"`;
                   return `
                     <div class="border-b border-slate-200/80 pb-5 last:border-b-0 last:pb-0">
                       <div class="flex flex-wrap items-baseline justify-between gap-2">
@@ -1395,7 +1390,7 @@
                       <input id="cat-${cat.id}" data-cat="${cat.id}" data-idx="${idx}" type="text" autocomplete="off"
                         ${state.submittedOnline ? "disabled" : ""}
                         value="${escapeHtml(val)}"
-                        placeholder="${escapeHtml(state.language === "malayalam" ? cat.placeholderMl : cat.placeholderEn)}"
+                        placeholder="${escapeHtml(inputPlaceholder)}"
                         class="cat-input mt-2 w-full rounded-lg border px-3.5 py-2.5 text-base font-medium text-slate-900 focus:outline-none focus:ring-2 ${
                           showErr
                             ? "border-red-400 bg-red-50/40 focus:border-red-600 focus:ring-red-600/15"
@@ -1403,13 +1398,6 @@
                               ? "border-emerald-400 bg-emerald-50/20 focus:border-emerald-600 focus:ring-emerald-600/20"
                               : "border-slate-300 bg-white focus:border-emerald-600 focus:ring-emerald-600/20"
                         }" />
-                      ${pool.length && !state.submittedOnline ? `
-                        <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                          <span class="text-xs text-slate-400">Try:</span>
-                          ${pool.map((w) => `
-                            <button type="button" data-action="pick-hint" data-cat="${cat.id}" data-word="${escapeHtml(w)}"
-                              class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700 hover:border-emerald-300 hover:bg-emerald-50">${escapeHtml(w)}</button>`).join("")}
-                        </div>` : ""}
                     </div>`;
                 }).join("")}
 
@@ -1917,16 +1905,6 @@
             state.paused = false;
             state.answers = createEmptyAnswers();
             state.timeLeft = state.timerSeconds;
-            render();
-          }
-          else if (act === "toggle-hints") { state.hintsEnabled = !state.hintsEnabled; render(); }
-          else if (act === "pick-hint") {
-            state.answers[btn.dataset.cat] = btn.dataset.word;
-            if (state.mode === "online" && state.room && db && !state.submittedOnline) {
-              db.collection("rooms").doc(state.room.roomCode).update({
-                [`submissions.${myClientId}`]: { ...state.answers },
-              }).catch(() => {});
-            }
             render();
           }
           else if (act === "set-reviewer") {
