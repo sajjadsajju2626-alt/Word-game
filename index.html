@@ -242,19 +242,52 @@
           return `${playerId}__${catId}`;
         }
 
-        function getAppealEntry(appeals, playerId, catId) {
-          if (!appeals) return { decision: "auto", by: "" };
-          const key = getAppealKey(playerId, catId);
-          return appeals[key] || { decision: "auto", by: "" };
+        function getCellPeerVotes(appeals, playerId, catId) {
+          const rawMap = (appeals && appeals[getAppealKey(playerId, catId)]) || {};
+          const votesMap = {};
+          const approveVotes = [];
+          const rejectVotes = [];
+
+          for (const [voterId, entry] of Object.entries(rawMap)) {
+            if (!voterId || voterId === playerId || !entry || !entry.decision) continue;
+            if (entry.decision === "approved" || entry.decision === "rejected") {
+              votesMap[voterId] = { decision: entry.decision, by: entry.by || "Peer" };
+              if (entry.decision === "approved") approveVotes.push(votesMap[voterId]);
+              else rejectVotes.push(votesMap[voterId]);
+            }
+          }
+
+          let decision = "auto";
+          let isTied = false;
+          if (rejectVotes.length > approveVotes.length) decision = "rejected";
+          else if (approveVotes.length > rejectVotes.length) decision = "approved";
+          else if (approveVotes.length > 0 && approveVotes.length === rejectVotes.length) isTied = true;
+
+          return {
+            votesMap,
+            approveVotes,
+            rejectVotes,
+            approveCount: approveVotes.length,
+            rejectCount: rejectVotes.length,
+            decision,
+            isTied,
+          };
         }
 
-        function setAppealInMap(appeals, playerId, catId, decision, appealedBy) {
+        function setVoteInMap(appeals, targetPlayerId, catId, voterId, voterName, decision) {
+          if (!voterId || voterId === targetPlayerId) return appeals || {};
           const next = { ...(appeals || {}) };
-          const key = getAppealKey(playerId, catId);
+          const key = getAppealKey(targetPlayerId, catId);
+          const cellVotes = { ...(next[key] || {}) };
           if (decision === "auto") {
+            delete cellVotes[voterId];
+          } else {
+            cellVotes[voterId] = { decision, by: voterName || "Player" };
+          }
+          if (Object.keys(cellVotes).length === 0) {
             delete next[key];
           } else {
-            next[key] = { decision, by: appealedBy || "" };
+            next[key] = cellVotes;
           }
           return next;
         }
@@ -269,13 +302,13 @@
               const raw = String((answers && answers[cat.id]) || "").trim();
               const norm = normalizeWord(raw);
               const val = validateWordForLetter(raw, upper, cat.id);
-              const appeal = getAppealEntry(appeals, player.id, cat.id);
-              const decision = appeal.decision || "auto";
+              const voteInfo = getCellPeerVotes(appeals, player.id, cat.id);
+              const decision = voteInfo.decision;
               const effectiveValid =
                 raw.length > 0 &&
                 (decision === "approved" || (decision === "auto" && val.valid));
 
-              cellPre[cat.id] = { raw, norm, val, decision, appealedBy: appeal.by || "", effectiveValid };
+              cellPre[cat.id] = { raw, norm, val, decision, voteInfo, effectiveValid };
               if (effectiveValid && norm) {
                 wordCounts[cat.id].set(norm, (wordCounts[cat.id].get(norm) || 0) + 1);
               }
@@ -288,36 +321,41 @@
             let roundTotal = 0;
             for (const cat of CATEGORIES) {
               const item = cellPre[cat.id];
+              const v = item.voteInfo;
               if (!item.raw) {
                 cells[cat.id] = {
                   raw: "", normalized: "", points: 0, status: "blank",
-                  reason: "No answer entered", appealDecision: "auto", appealedBy: "",
+                  reason: "No answer entered", appealDecision: "auto", voteInfo: v,
                 };
               } else if (!item.effectiveValid) {
                 const isRejected = item.decision === "rejected";
+                const names = v.rejectVotes.map((x) => x.by).filter(Boolean).join(", ");
+                const tieNote = v.isTied ? ` (Vote tied ${v.approveCount}–${v.rejectCount})` : "";
                 cells[cat.id] = {
                   raw: item.raw, normalized: item.norm, points: 0,
                   status: isRejected ? "invalid" : (item.val.reason === "wrong_letter" ? "wrong_letter" : "invalid"),
                   reason: isRejected
-                    ? (item.appealedBy ? `Marked incorrect by ${item.appealedBy}` : "Marked incorrect on appeal")
-                    : item.val.message,
+                    ? (names ? `Disapproved by ${names}` : "Disapproved by peer vote")
+                    : item.val.message + tieNote,
                   appealDecision: item.decision,
-                  appealedBy: item.appealedBy,
+                  voteInfo: v,
                 };
               } else {
                 const isShared = (wordCounts[cat.id].get(item.norm) || 1) > 1;
                 const pts = isShared ? 5 : 10;
                 roundTotal += pts;
+                const names = v.approveVotes.map((x) => x.by).filter(Boolean).join(", ");
+                const tieNote = v.isTied ? ` · Vote tied ${v.approveCount}–${v.rejectCount}` : "";
                 const reason =
                   item.decision === "approved"
-                    ? (isShared ? "Approved on appeal · +5 (shared)" : "Approved on appeal · +10")
-                    : (isShared ? "Shared word (+5)" : "Unique word (+10)");
+                    ? `${names ? `Approved by ${names}` : "Approved by peer vote"} · +${pts}${isShared ? " (shared)" : ""}`
+                    : (isShared ? "Shared word (+5)" : "Unique word (+10)") + tieNote;
                 cells[cat.id] = {
                   raw: item.raw, normalized: item.norm, points: pts,
                   status: isShared ? "shared" : "unique",
                   reason,
                   appealDecision: item.decision,
-                  appealedBy: item.appealedBy,
+                  voteInfo: v,
                 };
               }
             }
@@ -432,11 +470,22 @@
           roundSubmissions: [],
           roundResults: [],
           appeals: {},
+          reviewingPlayerId: "",
           // Firebase Firestore Online Room state
           room: null,
           submittedOnline: false,
           onlineTimeLeft: 60,
         };
+
+        function getCurrentReviewerId() {
+          if (state.mode === "online" && state.room) return myClientId;
+          if (state.mode === "solo") return "human_1";
+          const humans = state.activePlayers.filter((p) => !p.isBot);
+          if (state.reviewingPlayerId && humans.some((p) => p.id === state.reviewingPlayerId)) {
+            return state.reviewingPlayerId;
+          }
+          return humans[0] ? humans[0].id : "";
+        }
 
         let timerInterval = null;
         let roomUnsubscribe = null;
@@ -813,29 +862,35 @@
 
         async function setOnlineAppeal(playerId, catId, decision) {
           if (!db || !state.room) return;
+          // Strictly forbid players from reviewing or altering their own answers
+          if (playerId === myClientId) return;
+
           const r = state.room;
           const myPlayer = r.playersMap && r.playersMap[myClientId];
           const myName = (myPlayer && myPlayer.name) || state.onlineName || "Player";
           const key = getAppealKey(playerId, catId);
+          const currentCellVotes = (r.appeals && r.appeals[key]) || {};
+          const existingMyVote = currentCellVotes[myClientId] && currentCellVotes[myClientId].decision;
+          const targetDecision = decision === existingMyVote ? "auto" : decision;
 
           const updatePayload = {};
-          if (decision === "auto") {
-            updatePayload[`appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
+          if (targetDecision === "auto") {
+            updatePayload[`appeals.${key}.${myClientId}`] = window.firebase.firestore.FieldValue.delete();
             if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
-              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
+              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}.${myClientId}`] = window.firebase.firestore.FieldValue.delete();
             }
           } else {
-            const val = { decision, by: myName };
-            updatePayload[`appeals.${key}`] = val;
+            const val = { decision: targetDecision, by: myName };
+            updatePayload[`appeals.${key}.${myClientId}`] = val;
             if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
-              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = val;
+              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}.${myClientId}`] = val;
             }
           }
 
           try {
             await db.collection("rooms").doc(r.roomCode).update(updatePayload);
           } catch (err) {
-            state.onlineError = formatFirebaseError(err, "Failed to update appeal.");
+            state.onlineError = formatFirebaseError(err, "Failed to submit appeal vote.");
             render();
           }
         }
@@ -962,6 +1017,7 @@
             .map((bot) => ({ player: bot, answers: pickBotAnswers(state.targetLetter, state.botDifficulty) }));
 
           state.roundSubmissions = [...state.roundSubmissions, ...botSubs];
+          state.reviewingPlayerId = humans[0] ? humans[0].id : "";
           const scored = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.appeals);
           state.roundResults = [...state.roundResults.filter((r) => r.roundNumber !== state.currentRound), scored];
           state.phase = "appeal";
@@ -969,9 +1025,17 @@
         }
 
         function setLocalAppeal(playerId, catId, decision) {
-          const existing = getAppealEntry(state.appeals, playerId, catId).decision;
+          const reviewerId = getCurrentReviewerId();
+          // Strictly forbid self-correction or voting on one's own answers
+          if (!reviewerId || playerId === reviewerId) return;
+
+          const reviewer = state.activePlayers.find((p) => p.id === reviewerId);
+          const reviewerName = (reviewer && reviewer.name) || "Reviewer";
+          const voteInfo = getCellPeerVotes(state.appeals, playerId, catId);
+          const existing = voteInfo.votesMap[reviewerId] && voteInfo.votesMap[reviewerId].decision;
           const nextDecision = existing === decision ? "auto" : decision;
-          state.appeals = setAppealInMap(state.appeals, playerId, catId, nextDecision, "");
+
+          state.appeals = setVoteInMap(state.appeals, playerId, catId, reviewerId, reviewerName, nextDecision);
           const updated = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.appeals);
           state.roundResults = state.roundResults.map((r) => (r.roundNumber === state.currentRound ? updated : r));
           render();
@@ -1382,9 +1446,16 @@
             : state.roundResults[state.roundResults.length - 1];
           const totalRounds = isOnline ? state.room.totalRounds : state.totalRounds;
           const canConfirm = !isOnline || state.room.hostId === myClientId;
+          const reviewerId = getCurrentReviewerId();
+          const passAndPlayHumans = !isOnline && state.mode === "pass_and_play"
+            ? state.activePlayers.filter((p) => !p.isBot)
+            : [];
 
           const appealCount = result.playerScores.reduce((acc, ps) => {
-            return acc + CATEGORIES.filter((cat) => ps.cells[cat.id].appealDecision !== "auto").length;
+            return acc + CATEGORIES.filter((cat) => {
+              const v = ps.cells[cat.id].voteInfo;
+              return v && (v.approveCount > 0 || v.rejectCount > 0);
+            }).length;
           }, 0);
 
           return `
@@ -1395,13 +1466,27 @@
                   <div>
                     <p class="text-xs font-semibold text-amber-700">അപ്പീൽ സിസ്റ്റം · Round ${result.roundNumber} of ${totalRounds}</p>
                     <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal & Review Answers</h1>
-                    <p class="mt-0.5 text-sm text-slate-600">Inspect every player's words for letter "${result.letter}". Approve or mark incorrect before locking scores.</p>
+                    <p class="mt-0.5 text-sm text-slate-600">Your own answers are locked. Inspect other players' words for letter "${result.letter}" and vote to approve or disapprove invalid entries.</p>
                   </div>
                 </div>
                 <div class="text-xs font-semibold text-slate-600 font-mono-tabular shrink-0">
-                  ${appealCount} ${appealCount === 1 ? "appeal" : "appeals"} applied
+                  ${appealCount} ${appealCount === 1 ? "word" : "words"} voted
                 </div>
               </section>
+
+              ${passAndPlayHumans.length > 1 ? `
+                <section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                  <div class="text-xs text-slate-600">
+                    <span class="font-bold text-slate-800">Reviewing as:</span> Select your name to vote on other players' answers (your own column stays locked).
+                  </div>
+                  <div class="flex flex-wrap gap-1.5 rounded-lg bg-slate-100 p-1">
+                    ${passAndPlayHumans.map((p) => `
+                      <button type="button" data-action="set-reviewer" data-rid="${p.id}"
+                        class="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                          reviewerId === p.id ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                        }">${escapeHtml(p.name)}</button>`).join("")}
+                  </div>
+                </section>` : ""}
 
               ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
 
@@ -1410,13 +1495,16 @@
                   <thead>
                     <tr class="border-b border-slate-200 bg-slate-50">
                       <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
-                      ${result.playerScores.map((ps) => `
-                        <th class="px-4 py-3.5 font-bold text-slate-900">
-                          <div class="flex items-center justify-between gap-2">
-                            <span class="truncate">${escapeHtml(ps.playerName)}</span>
-                            <span class="font-mono-tabular text-xs font-bold text-emerald-700">${ps.roundTotal} pts</span>
-                          </div>
-                        </th>`).join("")}
+                      ${result.playerScores.map((ps) => {
+                        const isSelf = ps.playerId === reviewerId;
+                        return `
+                          <th class="px-4 py-3.5 font-bold text-slate-900">
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="truncate">${escapeHtml(ps.playerName)}${isSelf ? ' <span class="text-xs font-semibold text-slate-500">(You · Locked)</span>' : ""}</span>
+                              <span class="font-mono-tabular text-xs font-bold text-emerald-700">${ps.roundTotal} pts</span>
+                            </div>
+                          </th>`;
+                      }).join("")}
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-100">
@@ -1430,13 +1518,16 @@
                           </td>
                           ${result.playerScores.map((ps) => {
                             const c = ps.cells[cat.id];
+                            const isSelf = ps.playerId === reviewerId;
                             const hasWord = c.raw.trim().length > 0;
                             const isValidNow = c.points > 0;
-                            const isOverridden = c.appealDecision !== "auto";
+                            const v = c.voteInfo || { votesMap: {}, approveCount: 0, rejectCount: 0 };
+                            const myVote = reviewerId && v.votesMap[reviewerId] ? v.votesMap[reviewerId].decision : "";
+                            const totalVotes = v.approveCount + v.rejectCount;
                             const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
 
                             return `
-                              <td class="px-4 py-4 align-top">
+                              <td class="px-4 py-4 align-top ${isSelf ? "bg-slate-50/60" : ""}">
                                 <div class="space-y-2">
                                   <div class="flex items-start justify-between gap-2">
                                     <div class="min-w-0">
@@ -1445,24 +1536,37 @@
                                     </div>
                                     <span class="font-mono-tabular text-xs font-bold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
                                   </div>
-                                  ${hasWord ? `
-                                    <div class="flex items-center gap-1.5 pt-0.5">
-                                      <div class="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Appeal decision for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
-                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="approved"
-                                          class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${isValidNow ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-emerald-800"}">
-                                          Approve
-                                        </button>
-                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="rejected"
-                                          class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${!isValidNow ? "bg-white text-red-700 shadow-sm" : "text-slate-600 hover:text-red-700"}">
-                                          Mark Incorrect
-                                        </button>
-                                      </div>
-                                      ${isOverridden ? `
-                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
-                                          class="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
-                                          Reset
-                                        </button>` : ""}
-                                    </div>` : ""}
+                                  ${hasWord ? (
+                                    isSelf ? `
+                                      <p class="text-[11px] font-medium text-slate-500">
+                                        Own answer · Locked${totalVotes > 0 ? ` (${v.approveCount} approve · ${v.rejectCount} disapprove)` : ""}
+                                      </p>` : `
+                                      <div class="space-y-1 pt-0.5">
+                                        <div class="flex items-center gap-1.5">
+                                          <div class="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Appeal vote for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="approved"
+                                              aria-pressed="${myVote === "approved"}"
+                                              class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${myVote === "approved" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-emerald-800"}">
+                                              Approve
+                                            </button>
+                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="rejected"
+                                              aria-pressed="${myVote === "rejected"}"
+                                              class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${myVote === "rejected" ? "bg-white text-red-700 shadow-sm" : "text-slate-600 hover:text-red-700"}">
+                                              Disapprove
+                                            </button>
+                                          </div>
+                                          ${myVote ? `
+                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
+                                              class="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
+                                              Clear
+                                            </button>` : ""}
+                                        </div>
+                                        ${totalVotes > 0 ? `
+                                          <p class="text-[11px] text-slate-500 font-mono-tabular">
+                                            Votes: ${v.approveCount} approve · ${v.rejectCount} disapprove
+                                          </p>` : ""}
+                                      </div>`
+                                  ) : ""}
                                 </div>
                               </td>`;
                           }).join("")}
@@ -1474,8 +1578,8 @@
 
               <section class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div class="text-xs text-slate-600 space-y-0.5">
-                  <p class="font-semibold text-slate-800">Live Scoring Rules (Updated Automatically)</p>
-                  <p>10 pts unique valid word · 5 pts duplicate valid word · 0 pts blank, invalid, or wrong letter</p>
+                  <p class="font-semibold text-slate-800">Peer Review Rules · Self-Correction Disabled</p>
+                  <p>10 pts unique valid word · 5 pts duplicate valid word · 0 pts blank, invalid, wrong letter, or disapproved by peers</p>
                 </div>
                 ${canConfirm
                   ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shrink-0">Confirm Scores & Continue →</button>`
@@ -1493,6 +1597,7 @@
           const letterMode = isOnline ? state.room.letterMode : state.letterMode;
           const usedLetters = isOnline ? (state.room.usedLetters || []) : state.usedLetters;
           const canModerate = !isOnline || state.room.hostId === myClientId;
+          const reviewerId = getCurrentReviewerId();
           const standings = calculateStandings(players, resultsList);
           const isFinal = result.roundNumber >= totalRounds;
 
@@ -1517,7 +1622,7 @@
                       ${result.playerScores.map((ps) => `
                         <th class="px-4 py-3.5 font-bold text-slate-900">
                           <div class="flex items-center justify-between gap-2">
-                            <span class="truncate">${escapeHtml(ps.playerName)}</span>
+                            <span class="truncate">${escapeHtml(ps.playerName)}${ps.playerId === reviewerId ? " (You)" : ""}</span>
                             <span class="font-mono-tabular text-xs font-bold text-emerald-700">${ps.roundTotal} pts</span>
                           </div>
                         </th>`).join("")}
@@ -1534,6 +1639,7 @@
                           </td>
                           ${result.playerScores.map((ps) => {
                             const c = ps.cells[cat.id];
+                            const isSelf = ps.playerId === reviewerId;
                             const hasWord = c.raw.trim().length > 0;
                             const isValidNow = c.points > 0;
                             const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
@@ -1546,10 +1652,10 @@
                                   </div>
                                   <div class="flex flex-col items-end gap-1 shrink-0">
                                     <span class="font-mono-tabular text-xs font-bold ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
-                                    ${canModerate && hasWord ? `
+                                    ${canModerate && hasWord && !isSelf ? `
                                       <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="${isValidNow ? "rejected" : "approved"}"
                                         class="text-[11px] font-semibold underline ${isValidNow ? "text-slate-500 hover:text-slate-800" : "text-emerald-700"}">
-                                        ${isValidNow ? "Mark Incorrect" : "Approve"}
+                                        ${isValidNow ? "Disapprove" : "Approve"}
                                       </button>` : ""}
                                   </div>
                                 </div>
@@ -1822,6 +1928,12 @@
               }).catch(() => {});
             }
             render();
+          }
+          else if (act === "set-reviewer") {
+            if (state.mode === "pass_and_play") {
+              state.reviewingPlayerId = btn.dataset.rid;
+              render();
+            }
           }
           else if (act === "set-appeal") {
             const pid = btn.dataset.pid;
