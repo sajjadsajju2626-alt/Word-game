@@ -10,9 +10,10 @@ interface ConfettiParticle {
   vy: number;
   gravity: number;
   drag: number;
+  maxVy: number;
   w: number;
   h: number;
-  shape: 'rect' | 'circle' | 'ribbon';
+  shape: 'rect' | 'circle' | 'ribbon' | 'diamond';
   color: string;
   rotation: number;
   rotationSpeed: number;
@@ -20,6 +21,7 @@ interface ConfettiParticle {
   tiltSpeed: number;
   wobblePhase: number;
   wobbleSpeed: number;
+  wobbleAmp: number;
   alpha: number;
   life: number;
   maxLife: number;
@@ -58,14 +60,25 @@ export function PodiumScreen({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const colors = ['#047857', '#10b981', '#f59e0b', '#fbbf24', '#f43f5e', '#0ea5e9', '#6366f1'];
-    const shapes: ConfettiParticle['shape'][] = ['rect', 'circle', 'ribbon'];
+    const colors = [
+      '#047857',
+      '#10b981',
+      '#34d399',
+      '#f59e0b',
+      '#fbbf24',
+      '#f43f5e',
+      '#ec4899',
+      '#0ea5e9',
+      '#6366f1',
+      '#a855f7',
+    ];
+    const shapes: ConfettiParticle['shape'][] = ['rect', 'circle', 'ribbon', 'diamond'];
     const particles: ConfettiParticle[] = [];
 
     let width = window.innerWidth;
     let height = window.innerHeight;
     let rafId: number | null = null;
-    let secondWaveTimer: number | null = null;
+    let waveTimers: number[] = [];
 
     const resizeCanvas = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -79,6 +92,39 @@ export function PodiumScreen({
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
+    const pushParticle = (
+      x: number,
+      y: number,
+      vx: number,
+      vy: number,
+      options: { gravityBase?: number; lifeBase?: number } = {},
+    ) => {
+      const shape = shapes[Math.floor(Math.random() * shapes.length)];
+      particles.push({
+        x,
+        y,
+        vx,
+        vy,
+        gravity: (options.gravityBase ?? 0.15) + Math.random() * 0.1,
+        drag: 0.986 + Math.random() * 0.008,
+        maxVy: 4.2 + Math.random() * 2.6,
+        w: shape === 'ribbon' ? 4.5 + Math.random() * 3.5 : 6.5 + Math.random() * 5.5,
+        h: shape === 'ribbon' ? 14 + Math.random() * 8 : 6.5 + Math.random() * 5.5,
+        shape,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.26,
+        tilt: Math.random() * Math.PI * 2,
+        tiltSpeed: 0.09 + Math.random() * 0.16,
+        wobblePhase: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.05 + Math.random() * 0.09,
+        wobbleAmp: 0.7 + Math.random() * 0.95,
+        alpha: 1,
+        life: 0,
+        maxLife: (options.lifeBase ?? 320) + Math.random() * 180,
+      });
+    };
+
     const spawnBurst = (
       originX: number,
       originY: number,
@@ -87,44 +133,69 @@ export function PodiumScreen({
       spreadMax: number,
       speedMin: number,
       speedMax: number,
+      options?: { gravityBase?: number; lifeBase?: number },
     ) => {
       for (let i = 0; i < count; i++) {
         const angle = spreadMin + Math.random() * (spreadMax - spreadMin);
         const speed = speedMin + Math.random() * (speedMax - speedMin);
-        const shape = shapes[Math.floor(Math.random() * shapes.length)];
-        particles.push({
-          x: originX + (Math.random() - 0.5) * 28,
-          y: originY + (Math.random() - 0.5) * 18,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed,
-          gravity: 0.22 + Math.random() * 0.14,
-          drag: 0.985 + Math.random() * 0.008,
-          w: shape === 'ribbon' ? 4 + Math.random() * 3 : 6 + Math.random() * 5,
-          h: shape === 'ribbon' ? 13 + Math.random() * 6 : 6 + Math.random() * 5,
-          shape,
-          color: colors[Math.floor(Math.random() * colors.length)],
-          rotation: Math.random() * Math.PI * 2,
-          rotationSpeed: (Math.random() - 0.5) * 0.22,
-          tilt: Math.random() * Math.PI * 2,
-          tiltSpeed: 0.08 + Math.random() * 0.14,
-          wobblePhase: Math.random() * Math.PI * 2,
-          wobbleSpeed: 0.05 + Math.random() * 0.08,
-          alpha: 1,
-          life: 0,
-          maxLife: 190 + Math.random() * 110,
-        });
+        pushParticle(
+          originX + (Math.random() - 0.5) * 34,
+          originY + (Math.random() - 0.5) * 22,
+          Math.cos(angle) * speed,
+          Math.sin(angle) * speed,
+          options,
+        );
       }
     };
 
-    spawnBurst(width * 0.12, height * 0.72, 48, -Math.PI * 0.44, -Math.PI * 0.14, 10, 19);
-    spawnBurst(width * 0.88, height * 0.72, 48, -Math.PI * 0.86, -Math.PI * 0.56, 10, 19);
-    spawnBurst(width * 0.5, -10, 44, Math.PI * 0.2, Math.PI * 0.8, 2, 7);
+    const spawnTopShower = (
+      count: number,
+      options?: { gravityBase?: number; lifeBase?: number },
+    ) => {
+      for (let i = 0; i < count; i++) {
+        const x = width * (0.04 + Math.random() * 0.92);
+        const y = -12 - Math.random() * 70;
+        const vx = (Math.random() - 0.5) * 3.4;
+        const vy = 1.6 + Math.random() * 4.2;
+        pushParticle(x, y, vx, vy, { gravityBase: 0.11, lifeBase: 360, ...options });
+      }
+    };
 
-    secondWaveTimer = window.setTimeout(() => {
-      secondWaveTimer = null;
-      spawnBurst(width * 0.28, height * 0.2, 30, -Math.PI * 0.8, -Math.PI * 0.2, 5, 11);
-      spawnBurst(width * 0.72, height * 0.2, 30, -Math.PI * 0.8, -Math.PI * 0.2, 5, 11);
-    }, 620);
+    const scheduleWave = (delayMs: number, fn: () => void) => {
+      const timerId = window.setTimeout(() => {
+        waveTimers = waveTimers.filter((id) => id !== timerId);
+        fn();
+      }, delayMs);
+      waveTimers.push(timerId);
+    };
+
+    // Wave 1 (0ms): high-energy side cannons + full-width top shower
+    spawnBurst(width * 0.08, height * 0.76, 85, -Math.PI * 0.45, -Math.PI * 0.12, 12, 22);
+    spawnBurst(width * 0.92, height * 0.76, 85, -Math.PI * 0.88, -Math.PI * 0.55, 12, 22);
+    spawnTopShower(90);
+
+    // Wave 2 (550ms): dual upper-corner celebration bursts
+    scheduleWave(550, () => {
+      spawnBurst(width * 0.24, height * 0.24, 55, -Math.PI * 0.85, -Math.PI * 0.15, 6, 13);
+      spawnBurst(width * 0.76, height * 0.24, 55, -Math.PI * 0.85, -Math.PI * 0.15, 6, 13);
+    });
+
+    // Wave 3 (1350ms): center starburst + mid-celebration top shower
+    scheduleWave(1350, () => {
+      spawnBurst(width * 0.5, height * 0.3, 70, -Math.PI * 0.92, -Math.PI * 0.08, 7, 15);
+      spawnTopShower(55);
+    });
+
+    // Wave 4 (2400ms): side cannon encore
+    scheduleWave(2400, () => {
+      spawnBurst(width * 0.1, height * 0.68, 55, -Math.PI * 0.44, -Math.PI * 0.14, 11, 20);
+      spawnBurst(width * 0.9, height * 0.68, 55, -Math.PI * 0.86, -Math.PI * 0.56, 11, 20);
+    });
+
+    // Wave 5 (3600ms): lingering festive flutter rain
+    scheduleWave(3600, () => {
+      spawnTopShower(65, { gravityBase: 0.09, lifeBase: 380 });
+    });
 
     let lastTime = performance.now();
 
@@ -138,19 +209,19 @@ export function PodiumScreen({
         const p = particles[i];
         p.life += dt;
         p.vx *= Math.pow(p.drag, dt);
-        p.vy = p.vy * Math.pow(p.drag, dt) + p.gravity * dt;
+        p.vy = Math.min(p.vy * Math.pow(p.drag, dt) + p.gravity * dt, p.maxVy);
         p.wobblePhase += p.wobbleSpeed * dt;
-        p.x += (p.vx + Math.sin(p.wobblePhase) * 0.75) * dt;
+        p.x += (p.vx + Math.sin(p.wobblePhase) * p.wobbleAmp) * dt;
         p.y += p.vy * dt;
         p.rotation += p.rotationSpeed * dt;
         p.tilt += p.tiltSpeed * dt;
 
-        const fadeStart = p.maxLife * 0.72;
+        const fadeStart = p.maxLife * 0.78;
         if (p.life > fadeStart) {
           p.alpha = Math.max(0, 1 - (p.life - fadeStart) / (p.maxLife - fadeStart));
         }
 
-        if (p.life >= p.maxLife || p.y > height + 40) {
+        if (p.life >= p.maxLife || p.y > height + 48) {
           particles.splice(i, 1);
           continue;
         }
@@ -166,13 +237,21 @@ export function PodiumScreen({
           ctx.beginPath();
           ctx.arc(0, 0, p.w * 0.5, 0, Math.PI * 2);
           ctx.fill();
+        } else if (p.shape === 'diamond') {
+          ctx.beginPath();
+          ctx.moveTo(0, -p.h * 0.6);
+          ctx.lineTo(p.w * 0.55, 0);
+          ctx.lineTo(0, p.h * 0.6);
+          ctx.lineTo(-p.w * 0.55, 0);
+          ctx.closePath();
+          ctx.fill();
         } else {
           ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
         }
         ctx.restore();
       }
 
-      if (particles.length > 0 || secondWaveTimer !== null) {
+      if (particles.length > 0 || waveTimers.length > 0) {
         rafId = requestAnimationFrame(tick);
       } else {
         rafId = null;
@@ -183,7 +262,8 @@ export function PodiumScreen({
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
-      if (secondWaveTimer !== null) window.clearTimeout(secondWaveTimer);
+      waveTimers.forEach((id) => window.clearTimeout(id));
+      waveTimers = [];
       window.removeEventListener('resize', resizeCanvas);
       ctx.clearRect(0, 0, width, height);
     };
