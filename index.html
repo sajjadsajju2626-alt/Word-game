@@ -421,52 +421,59 @@
           return `${playerId}__${catId}`;
         }
 
-        function getCellPeerVotes(appeals, playerId, catId) {
-          const rawMap = (appeals && appeals[getAppealKey(playerId, catId)]) || {};
-          const votesMap = {};
-          const approveVotes = [];
-          const rejectVotes = [];
-
-          for (const [voterId, entry] of Object.entries(rawMap)) {
-            if (!voterId || voterId === playerId || !entry || !entry.decision) continue;
-            if (entry.decision === "approved" || entry.decision === "rejected") {
-              votesMap[voterId] = { decision: entry.decision, by: entry.by || "Peer" };
-              if (entry.decision === "approved") approveVotes.push(votesMap[voterId]);
-              else rejectVotes.push(votesMap[voterId]);
+        function getCellAdminRuling(appeals, playerId, catId) {
+          const entry = appeals && appeals[getAppealKey(playerId, catId)];
+          if (!entry || typeof entry !== "object") {
+            return { decision: "auto", by: "", isOverridden: false };
+          }
+          // New Admin-only direct ruling format: { decision: "valid" | "duplicate" | "invalid", by, adminId }
+          if (typeof entry.decision === "string") {
+            const rawDec = entry.decision;
+            const normalized =
+              rawDec === "valid" || rawDec === "approved"
+                ? "valid"
+                : rawDec === "duplicate"
+                  ? "duplicate"
+                  : rawDec === "invalid" || rawDec === "rejected"
+                    ? "invalid"
+                    : "auto";
+            return {
+              decision: normalized,
+              by: entry.by || "Admin",
+              isOverridden: normalized !== "auto",
+            };
+          }
+          // Backward compatibility with legacy peer-vote map format
+          let approveCount = 0;
+          let rejectCount = 0;
+          let lastBy = "";
+          for (const [voterId, vote] of Object.entries(entry)) {
+            if (!voterId || !vote || !vote.decision) continue;
+            if (vote.decision === "approved") {
+              approveCount += 1;
+              lastBy = vote.by || lastBy;
+            } else if (vote.decision === "rejected") {
+              rejectCount += 1;
+              lastBy = vote.by || lastBy;
             }
           }
-
-          let decision = "auto";
-          let isTied = false;
-          if (rejectVotes.length > approveVotes.length) decision = "rejected";
-          else if (approveVotes.length > rejectVotes.length) decision = "approved";
-          else if (approveVotes.length > 0 && approveVotes.length === rejectVotes.length) isTied = true;
-
-          return {
-            votesMap,
-            approveVotes,
-            rejectVotes,
-            approveCount: approveVotes.length,
-            rejectCount: rejectVotes.length,
-            decision,
-            isTied,
-          };
+          if (rejectCount > approveCount) return { decision: "invalid", by: lastBy || "Admin", isOverridden: true };
+          if (approveCount > rejectCount) return { decision: "valid", by: lastBy || "Admin", isOverridden: true };
+          return { decision: "auto", by: "", isOverridden: false };
         }
 
-        function setVoteInMap(appeals, targetPlayerId, catId, voterId, voterName, decision) {
-          if (!voterId || voterId === targetPlayerId) return appeals || {};
+        function setAdminRulingInMap(appeals, targetPlayerId, catId, adminId, adminName, decision) {
           const next = { ...(appeals || {}) };
           const key = getAppealKey(targetPlayerId, catId);
-          const cellVotes = { ...(next[key] || {}) };
-          if (decision === "auto") {
-            delete cellVotes[voterId];
-          } else {
-            cellVotes[voterId] = { decision, by: voterName || "Player" };
-          }
-          if (Object.keys(cellVotes).length === 0) {
+          if (!decision || decision === "auto") {
             delete next[key];
           } else {
-            next[key] = cellVotes;
+            next[key] = {
+              decision,
+              by: adminName || "Admin",
+              adminId: adminId || "",
+              updatedAt: Date.now(),
+            };
           }
           return next;
         }
@@ -481,13 +488,13 @@
               const raw = String((answers && answers[cat.id]) || "").trim();
               const norm = normalizeWord(raw);
               const val = validateWordForLetter(raw, upper, cat.id);
-              const voteInfo = getCellPeerVotes(appeals, player.id, cat.id);
-              const decision = voteInfo.decision;
+              const ruling = getCellAdminRuling(appeals, player.id, cat.id);
+              const decision = ruling.decision;
               const effectiveValid =
                 raw.length > 0 &&
-                (decision === "approved" || (decision === "auto" && val.valid));
+                (decision === "valid" || decision === "duplicate" || (decision === "auto" && val.valid));
 
-              cellPre[cat.id] = { raw, norm, val, decision, voteInfo, effectiveValid };
+              cellPre[cat.id] = { raw, norm, val, decision, ruling, effectiveValid };
               if (effectiveValid && norm) {
                 wordCounts[cat.id].set(norm, (wordCounts[cat.id].get(norm) || 0) + 1);
               }
@@ -500,41 +507,51 @@
             let roundTotal = 0;
             for (const cat of CATEGORIES) {
               const item = cellPre[cat.id];
-              const v = item.voteInfo;
+              const byLabel = item.ruling.by ? ` (${item.ruling.by})` : "";
               if (!item.raw) {
                 cells[cat.id] = {
                   raw: "", normalized: "", points: 0, status: "blank",
-                  reason: "No answer entered", appealDecision: "auto", voteInfo: v,
+                  reason: "No answer entered", appealDecision: "auto", rulingBy: "",
                 };
               } else if (!item.effectiveValid) {
-                const isRejected = item.decision === "rejected";
-                const names = v.rejectVotes.map((x) => x.by).filter(Boolean).join(", ");
-                const tieNote = v.isTied ? ` (Vote tied ${v.approveCount}–${v.rejectCount})` : "";
+                const isAdminInvalid = item.decision === "invalid";
                 cells[cat.id] = {
                   raw: item.raw, normalized: item.norm, points: 0,
-                  status: isRejected ? "invalid" : (item.val.reason === "wrong_letter" ? "wrong_letter" : "invalid"),
-                  reason: isRejected
-                    ? (names ? `Disapproved by ${names}` : "Disapproved by peer vote")
-                    : item.val.message + tieNote,
+                  status: isAdminInvalid ? "invalid" : (item.val.reason === "wrong_letter" ? "wrong_letter" : "invalid"),
+                  reason: isAdminInvalid
+                    ? `Disapproved by Admin${byLabel}`
+                    : item.val.message,
                   appealDecision: item.decision,
-                  voteInfo: v,
+                  rulingBy: item.ruling.by,
+                };
+              } else if (item.decision === "duplicate") {
+                roundTotal += 5;
+                cells[cat.id] = {
+                  raw: item.raw, normalized: item.norm, points: 5,
+                  status: "shared",
+                  reason: `Marked duplicate by Admin${byLabel} (+5)`,
+                  appealDecision: "duplicate",
+                  rulingBy: item.ruling.by,
+                };
+              } else if (item.decision === "valid") {
+                roundTotal += 10;
+                cells[cat.id] = {
+                  raw: item.raw, normalized: item.norm, points: 10,
+                  status: "unique",
+                  reason: `Approved by Admin${byLabel} (+10)`,
+                  appealDecision: "valid",
+                  rulingBy: item.ruling.by,
                 };
               } else {
                 const isShared = (wordCounts[cat.id].get(item.norm) || 1) > 1;
                 const pts = isShared ? 5 : 10;
                 roundTotal += pts;
-                const names = v.approveVotes.map((x) => x.by).filter(Boolean).join(", ");
-                const tieNote = v.isTied ? ` · Vote tied ${v.approveCount}–${v.rejectCount}` : "";
-                const reason =
-                  item.decision === "approved"
-                    ? `${names ? `Approved by ${names}` : "Approved by peer vote"} · +${pts}${isShared ? " (shared)" : ""}`
-                    : (isShared ? "Shared word (+5)" : "Unique word (+10)") + tieNote;
                 cells[cat.id] = {
                   raw: item.raw, normalized: item.norm, points: pts,
                   status: isShared ? "shared" : "unique",
-                  reason,
-                  appealDecision: item.decision,
-                  voteInfo: v,
+                  reason: isShared ? "Shared word (+5)" : "Unique word (+10)",
+                  appealDecision: "auto",
+                  rulingBy: "",
                 };
               }
             }
@@ -648,6 +665,8 @@
           roundResults: [],
           appeals: {},
           reviewingPlayerId: "",
+          reviewMessages: [],
+          reviewChatDraft: "",
           // Firebase Firestore Online Room state
           room: null,
           submittedOnline: false,
@@ -662,6 +681,60 @@
             return state.reviewingPlayerId;
           }
           return humans[0] ? humans[0].id : "";
+        }
+
+        function getRoomAdminId() {
+          if (state.mode === "online" && state.room) return state.room.hostId || "";
+          if (state.mode === "solo") return "human_1";
+          const humans = state.activePlayers.filter((p) => !p.isBot);
+          return humans[0] ? humans[0].id : "";
+        }
+
+        function getRoomAdminName() {
+          const adminId = getRoomAdminId();
+          if (state.mode === "online" && state.room) {
+            const p = state.room.playersMap && state.room.playersMap[adminId];
+            return (p && p.name) || "Host";
+          }
+          const p = state.activePlayers.find((x) => x.id === adminId);
+          return (p && p.name) || state.soloName || "Admin";
+        }
+
+        function isCurrentUserAdmin() {
+          const adminId = getRoomAdminId();
+          if (!adminId) return false;
+          if (state.mode === "online" && state.room) return state.room.hostId === myClientId;
+          if (state.mode === "solo") return true;
+          return getCurrentReviewerId() === adminId;
+        }
+
+        function getCurrentChatSender() {
+          if (state.mode === "online" && state.room) {
+            const p = state.room.playersMap && state.room.playersMap[myClientId];
+            return {
+              id: myClientId,
+              name: (p && p.name) || state.onlineName || "Player",
+              isAdmin: state.room.hostId === myClientId,
+            };
+          }
+          const reviewerId = getCurrentReviewerId();
+          const adminId = getRoomAdminId();
+          const p = state.activePlayers.find((x) => x.id === reviewerId);
+          return {
+            id: reviewerId || "human_1",
+            name: (p && p.name) || state.soloName || "Player 1",
+            isAdmin: Boolean(reviewerId && reviewerId === adminId),
+          };
+        }
+
+        function formatChatTime(ts) {
+          if (!ts) return "";
+          try {
+            const d = new Date(ts);
+            return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          } catch {
+            return "";
+          }
         }
 
         const STORAGE_KEY = "peru_sadhanam_game_state_v1";
@@ -705,6 +778,7 @@
               roundResults: state.roundResults,
               appeals: state.appeals,
               reviewingPlayerId: state.reviewingPlayerId,
+              reviewMessages: state.reviewMessages,
               submittedOnline: state.submittedOnline,
               onlineTimeLeft: state.onlineTimeLeft,
               savedRoomCode: state.room ? state.room.roomCode : (pendingOnlineRestore ? pendingOnlineRestore.roomCode : ""),
@@ -834,6 +908,7 @@
           state.roundResults = Array.isArray(saved.roundResults) ? saved.roundResults : [];
           state.appeals = saved.appeals && typeof saved.appeals === "object" ? saved.appeals : {};
           state.reviewingPlayerId = typeof saved.reviewingPlayerId === "string" ? saved.reviewingPlayerId : "";
+          state.reviewMessages = Array.isArray(saved.reviewMessages) ? saved.reviewMessages : [];
           state.phase = saved.phase;
 
           if (state.phase === "playing" && !state.paused) {
@@ -1063,6 +1138,7 @@
               }
 
               if (incoming.phase === "appeal" && prevPhase === "playing") {
+                state.reviewChatDraft = "";
                 soundFx.playTimeUp();
               }
               if (incoming.phase === "gameover" && prevPhase !== "gameover") {
@@ -1118,6 +1194,7 @@
               submissions: {},
               submittedMap: {},
               appeals: {},
+              reviewMessages: [],
               roundHistory: {},
               createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             };
@@ -1204,6 +1281,7 @@
               submissions: {},
               submittedMap: {},
               appeals: {},
+              reviewMessages: [],
             });
           } catch (err) {
             state.onlineError = formatFirebaseError(err, "Failed to start round.");
@@ -1250,35 +1328,70 @@
 
         async function setOnlineAppeal(playerId, catId, decision) {
           if (!db || !state.room) return;
-          // Strictly forbid players from reviewing or altering their own answers
-          if (playerId === myClientId) return;
+          // Strictly restrict appeal rulings to the Room Admin / Host
+          if (state.room.hostId !== myClientId) return;
 
           const r = state.room;
           const myPlayer = r.playersMap && r.playersMap[myClientId];
-          const myName = (myPlayer && myPlayer.name) || state.onlineName || "Player";
+          const adminName = (myPlayer && myPlayer.name) || state.onlineName || "Host";
           const key = getAppealKey(playerId, catId);
-          const currentCellVotes = (r.appeals && r.appeals[key]) || {};
-          const existingMyVote = currentCellVotes[myClientId] && currentCellVotes[myClientId].decision;
-          const targetDecision = decision === existingMyVote ? "auto" : decision;
+          const currentRuling = getCellAdminRuling(r.appeals || {}, playerId, catId);
+          const targetDecision = decision === currentRuling.decision ? "auto" : decision;
 
           const updatePayload = {};
           if (targetDecision === "auto") {
-            updatePayload[`appeals.${key}.${myClientId}`] = window.firebase.firestore.FieldValue.delete();
+            updatePayload[`appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
             if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
-              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}.${myClientId}`] = window.firebase.firestore.FieldValue.delete();
+              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
             }
           } else {
-            const val = { decision: targetDecision, by: myName };
-            updatePayload[`appeals.${key}.${myClientId}`] = val;
+            const val = {
+              decision: targetDecision,
+              by: adminName,
+              adminId: myClientId,
+              updatedAt: Date.now(),
+            };
+            updatePayload[`appeals.${key}`] = val;
             if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
-              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}.${myClientId}`] = val;
+              updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = val;
             }
           }
 
           try {
             await db.collection("rooms").doc(r.roomCode).update(updatePayload);
           } catch (err) {
-            state.onlineError = formatFirebaseError(err, "Failed to submit appeal vote.");
+            state.onlineError = formatFirebaseError(err, "Failed to update admin ruling.");
+            render();
+          }
+        }
+
+        async function sendOnlineReviewMessage(rawText) {
+          if (!db || !state.room) return;
+          const text = String(rawText || "").trim().slice(0, 240);
+          if (!text) return;
+
+          const r = state.room;
+          const sender = getCurrentChatSender();
+          const msg = {
+            id: "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+            round: r.currentRound || 1,
+            senderId: sender.id,
+            senderName: sender.name,
+            isAdmin: sender.isAdmin,
+            text,
+            createdAt: Date.now(),
+          };
+
+          state.reviewChatDraft = "";
+          render();
+
+          try {
+            await db.collection("rooms").doc(r.roomCode).update({
+              reviewMessages: window.firebase.firestore.FieldValue.arrayUnion(msg),
+            });
+          } catch (err) {
+            state.reviewChatDraft = text;
+            state.onlineError = formatFirebaseError(err, "Failed to send review message.");
             render();
           }
         }
@@ -1351,6 +1464,8 @@
           state.roundResults = [];
           state.appeals = {};
           state.reviewingPlayerId = "";
+          state.reviewMessages = [];
+          state.reviewChatDraft = "";
           state.onlineError = firebaseInitError;
           state.phase = "title";
           render();
@@ -1405,6 +1520,8 @@
           state.turnIndex = 0;
           state.roundSubmissions = [];
           state.appeals = {};
+          state.reviewMessages = [];
+          state.reviewChatDraft = "";
           state.answers = createEmptyAnswers();
           state.timeLeft = state.timerSeconds;
           state.paused = false;
@@ -1453,19 +1570,37 @@
         }
 
         function setLocalAppeal(playerId, catId, decision) {
-          const reviewerId = getCurrentReviewerId();
-          // Strictly forbid self-correction or voting on one's own answers
-          if (!reviewerId || playerId === reviewerId) return;
+          // Strictly restrict appeal rulings to the Room Admin / primary player
+          if (!isCurrentUserAdmin()) return;
 
-          const reviewer = state.activePlayers.find((p) => p.id === reviewerId);
-          const reviewerName = (reviewer && reviewer.name) || "Reviewer";
-          const voteInfo = getCellPeerVotes(state.appeals, playerId, catId);
-          const existing = voteInfo.votesMap[reviewerId] && voteInfo.votesMap[reviewerId].decision;
-          const nextDecision = existing === decision ? "auto" : decision;
+          const adminId = getRoomAdminId();
+          const adminName = getRoomAdminName();
+          const currentRuling = getCellAdminRuling(state.appeals, playerId, catId);
+          const nextDecision = currentRuling.decision === decision ? "auto" : decision;
 
-          state.appeals = setVoteInMap(state.appeals, playerId, catId, reviewerId, reviewerName, nextDecision);
+          state.appeals = setAdminRulingInMap(state.appeals, playerId, catId, adminId, adminName, nextDecision);
           const updated = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.appeals);
           state.roundResults = state.roundResults.map((r) => (r.roundNumber === state.currentRound ? updated : r));
+          render();
+        }
+
+        function sendLocalReviewMessage(rawText) {
+          const text = String(rawText || "").trim().slice(0, 240);
+          if (!text) return;
+          const sender = getCurrentChatSender();
+          state.reviewMessages = [
+            ...(Array.isArray(state.reviewMessages) ? state.reviewMessages : []),
+            {
+              id: "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+              round: state.currentRound,
+              senderId: sender.id,
+              senderName: sender.name,
+              isAdmin: sender.isAdmin,
+              text,
+              createdAt: Date.now(),
+            },
+          ];
+          state.reviewChatDraft = "";
           render();
         }
 
@@ -1870,149 +2005,231 @@
             ? buildOnlineCurrentRoundResult(state.room)
             : state.roundResults[state.roundResults.length - 1];
           const totalRounds = isOnline ? state.room.totalRounds : state.totalRounds;
-          const canConfirm = !isOnline || state.room.hostId === myClientId;
+          const isAdmin = isCurrentUserAdmin();
+          const adminId = getRoomAdminId();
+          const adminName = getRoomAdminName();
           const reviewerId = getCurrentReviewerId();
+          const chatSender = getCurrentChatSender();
           const passAndPlayHumans = !isOnline && state.mode === "pass_and_play"
             ? state.activePlayers.filter((p) => !p.isBot)
             : [];
 
-          const appealCount = result.playerScores.reduce((acc, ps) => {
-            return acc + CATEGORIES.filter((cat) => {
-              const v = ps.cells[cat.id].voteInfo;
-              return v && (v.approveCount > 0 || v.rejectCount > 0);
-            }).length;
+          const rawMessages = isOnline
+            ? (Array.isArray(state.room.reviewMessages) ? state.room.reviewMessages : [])
+            : (Array.isArray(state.reviewMessages) ? state.reviewMessages : []);
+          const roundMessages = rawMessages
+            .filter((m) => !m.round || Number(m.round) === Number(result.roundNumber))
+            .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+          const rulingCount = result.playerScores.reduce((acc, ps) => {
+            return acc + CATEGORIES.filter((cat) => ps.cells[cat.id].appealDecision !== "auto").length;
           }, 0);
 
           return `
-            <main class="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10 space-y-7">
+            <main class="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10 space-y-6">
               <section class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-4">
                   <div class="${getLetterBadgeStyle(result.letter, "card")} shrink-0 items-center justify-center rounded-xl bg-amber-600 font-display font-extrabold text-white">${escapeHtml(result.letter)}</div>
                   <div>
-                    <p class="text-xs font-semibold text-amber-700">അപ്പീൽ സിസ്റ്റം · Round ${result.roundNumber} of ${totalRounds}</p>
-                    <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal & Review Answers</h1>
-                    <p class="mt-0.5 text-sm text-slate-600">Your own answers are locked. Inspect other players' words for letter "${result.letter}" and vote to approve or disapprove invalid entries.</p>
+                    <p class="text-xs font-semibold text-amber-700">അപ്പീൽ &amp; റിവ്യൂ · Round ${result.roundNumber} of ${totalRounds}</p>
+                    <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal &amp; Review Answers</h1>
+                    <p class="mt-0.5 text-sm text-slate-600">
+                      ${isAdmin
+                        ? `Room Admin (${escapeHtml(adminName)}): Review answers for "${escapeHtml(result.letter)}" and mark words as Valid (10), Duplicate (5), or Invalid (0).`
+                        : `Inspect answers for "${escapeHtml(result.letter)}". Only Room Admin (${escapeHtml(adminName)}) can change rulings — use Review Chat to explain or appeal.`}
+                    </p>
                   </div>
                 </div>
-                <div class="text-xs font-semibold text-slate-600 font-mono-tabular shrink-0">
-                  ${appealCount} ${appealCount === 1 ? "word" : "words"} voted
+                <div class="flex items-center gap-3 text-xs font-semibold text-slate-600 font-mono-tabular shrink-0">
+                  <span>${rulingCount} ${rulingCount === 1 ? "ruling" : "rulings"} applied</span>
+                  <span class="text-slate-300">·</span>
+                  <span>${roundMessages.length} ${roundMessages.length === 1 ? "message" : "messages"}</span>
                 </div>
               </section>
 
               ${passAndPlayHumans.length > 1 ? `
                 <section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                   <div class="text-xs text-slate-600">
-                    <span class="font-bold text-slate-800">Reviewing as:</span> Select your name to vote on other players' answers (your own column stays locked).
+                    <span class="font-bold text-slate-800">Acting as:</span>
+                    Only <span class="font-semibold text-emerald-800">${escapeHtml(adminName)} (Admin)</span> can apply Valid / Duplicate / Invalid rulings. Any player can send messages in Review Chat.
                   </div>
                   <div class="flex flex-wrap gap-1.5 rounded-lg bg-slate-100 p-1">
                     ${passAndPlayHumans.map((p) => `
                       <button type="button" data-action="set-reviewer" data-rid="${p.id}"
                         class="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                           reviewerId === p.id ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                        }">${escapeHtml(p.name)}</button>`).join("")}
+                        }">${escapeHtml(p.name)}${p.id === adminId ? " · Admin" : ""}</button>`).join("")}
                   </div>
-                </section>` : ""}
+                </section>` : `
+                <section class="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-xs ${
+                  isAdmin ? "border-emerald-200 bg-emerald-50/70 text-emerald-900" : "border-amber-200 bg-amber-50/70 text-amber-900"
+                }">
+                  <p class="font-medium">
+                    ${isAdmin
+                      ? `<span class="font-bold">Room Admin Control Active:</span> You can mark any submitted word as Valid (10 pts), Duplicate (5 pts), or Invalid (0 pts) based on player appeals.`
+                      : `<span class="font-bold">Read-Only Review:</span> Only Room Admin (${escapeHtml(adminName)}) can toggle word rulings. Use the Review Chat box to appeal your word or flag a duplicate/invalid entry.`}
+                  </p>
+                </section>`}
 
               ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
 
-              <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-                <table class="w-full min-w-[680px] border-collapse text-left text-sm">
-                  <thead>
-                    <tr class="border-b border-slate-200 bg-slate-50">
-                      <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
-                      ${result.playerScores.map((ps) => {
-                        const isSelf = ps.playerId === reviewerId;
-                        return `
-                          <th class="px-4 py-3.5 font-bold text-slate-900">
-                            <div class="flex items-center justify-between gap-2">
-                              <span class="truncate">${escapeHtml(ps.playerName)}${isSelf ? ' <span class="text-xs font-semibold text-slate-500">(You · Locked)</span>' : ""}</span>
-                              <span class="font-mono-tabular text-xs font-bold text-emerald-700">${ps.roundTotal} pts</span>
-                            </div>
-                          </th>`;
-                      }).join("")}
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-slate-100">
-                    ${CATEGORIES.map((cat) => {
-                      const lbl = formatCatLabel(cat);
-                      return `
-                        <tr class="hover:bg-slate-50/40">
-                          <td class="px-4 py-4 align-top font-semibold text-slate-800">
-                            <div>${escapeHtml(lbl.primary)}</div>
-                            ${lbl.secondary ? `<div class="text-xs font-normal text-slate-500">${escapeHtml(lbl.secondary)}</div>` : ""}
-                          </td>
+              <div class="grid gap-6 lg:grid-cols-12 items-start">
+                <!-- Answer Review Table & Controls -->
+                <div class="lg:col-span-8 min-w-0 space-y-5">
+                  <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <table class="w-full min-w-[600px] border-collapse text-left text-sm">
+                      <thead>
+                        <tr class="border-b border-slate-200 bg-slate-50">
+                          <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
                           ${result.playerScores.map((ps) => {
-                            const c = ps.cells[cat.id];
                             const isSelf = ps.playerId === reviewerId;
-                            const hasWord = c.raw.trim().length > 0;
-                            const isValidNow = c.points > 0;
-                            const v = c.voteInfo || { votesMap: {}, approveCount: 0, rejectCount: 0 };
-                            const myVote = reviewerId && v.votesMap[reviewerId] ? v.votesMap[reviewerId].decision : "";
-                            const totalVotes = v.approveCount + v.rejectCount;
-                            const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
-
+                            const isRowAdmin = ps.playerId === adminId;
                             return `
-                              <td class="px-4 py-4 align-top ${isSelf ? "bg-slate-50/60" : ""}">
-                                <div class="space-y-2">
-                                  <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0">
-                                      <p class="font-semibold break-words ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
-                                      <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
-                                    </div>
-                                    <span class="font-mono-tabular text-xs font-bold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
-                                  </div>
-                                  ${hasWord ? (
-                                    isSelf ? `
-                                      <p class="text-[11px] font-medium text-slate-500">
-                                        Own answer · Locked${totalVotes > 0 ? ` (${v.approveCount} approve · ${v.rejectCount} disapprove)` : ""}
-                                      </p>` : `
-                                      <div class="space-y-1 pt-0.5">
-                                        <div class="flex items-center gap-1.5">
-                                          <div class="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Appeal vote for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
-                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="approved"
-                                              aria-pressed="${myVote === "approved"}"
-                                              class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${myVote === "approved" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-emerald-800"}">
-                                              Approve
-                                            </button>
-                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="rejected"
-                                              aria-pressed="${myVote === "rejected"}"
-                                              class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap ${myVote === "rejected" ? "bg-white text-red-700 shadow-sm" : "text-slate-600 hover:text-red-700"}">
-                                              Disapprove
-                                            </button>
-                                          </div>
-                                          ${myVote ? `
-                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
-                                              class="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
-                                              Clear
-                                            </button>` : ""}
-                                        </div>
-                                        ${totalVotes > 0 ? `
-                                          <p class="text-[11px] text-slate-500 font-mono-tabular">
-                                            Votes: ${v.approveCount} approve · ${v.rejectCount} disapprove
-                                          </p>` : ""}
-                                      </div>`
-                                  ) : ""}
+                              <th class="px-4 py-3.5 font-bold text-slate-900">
+                                <div class="flex items-center justify-between gap-2">
+                                  <span class="truncate">
+                                    ${escapeHtml(ps.playerName)}${isRowAdmin ? ' <span class="text-[11px] font-semibold text-emerald-700">(Admin)</span>' : ""}${isSelf && !isRowAdmin ? ' <span class="text-[11px] font-semibold text-slate-500">(You)</span>' : ""}
+                                  </span>
+                                  <span class="font-mono-tabular text-xs font-bold text-emerald-700 shrink-0">${ps.roundTotal} pts</span>
                                 </div>
-                              </td>`;
+                              </th>`;
                           }).join("")}
-                        </tr>`;
-                    }).join("")}
-                  </tbody>
-                </table>
-              </section>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-slate-100">
+                        ${CATEGORIES.map((cat) => {
+                          const lbl = formatCatLabel(cat);
+                          return `
+                            <tr class="hover:bg-slate-50/40">
+                              <td class="px-4 py-4 align-top font-semibold text-slate-800">
+                                <div>${escapeHtml(lbl.primary)}</div>
+                                ${lbl.secondary ? `<div class="text-xs font-normal text-slate-500">${escapeHtml(lbl.secondary)}</div>` : ""}
+                              </td>
+                              ${result.playerScores.map((ps) => {
+                                const c = ps.cells[cat.id];
+                                const hasWord = c.raw.trim().length > 0;
+                                const isValidNow = c.points > 0;
+                                const activeRuling = c.appealDecision || "auto";
+                                const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
 
-              <section class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                <div class="text-xs text-slate-600 space-y-0.5">
-                  <p class="font-semibold text-slate-800">Peer Review Rules · Self-Correction Disabled</p>
-                  <p>10 pts unique valid word · 5 pts duplicate valid word · 0 pts blank, invalid, wrong letter, or disapproved by peers</p>
+                                return `
+                                  <td class="px-4 py-4 align-top ${ps.playerId === reviewerId ? "bg-slate-50/50" : ""}">
+                                    <div class="space-y-2">
+                                      <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                          <p class="font-semibold break-words ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
+                                          <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
+                                        </div>
+                                        <span class="font-mono-tabular text-xs font-bold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
+                                      </div>
+                                      ${hasWord ? (
+                                        isAdmin ? `
+                                          <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                            <div class="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Admin ruling for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
+                                                aria-pressed="${activeRuling === "valid"}"
+                                                class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${activeRuling === "valid" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:text-emerald-800"}">
+                                                Valid 10
+                                              </button>
+                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
+                                                aria-pressed="${activeRuling === "duplicate"}"
+                                                class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${activeRuling === "duplicate" ? "bg-amber-600 text-white shadow-sm" : "text-slate-600 hover:text-amber-700"}">
+                                                Dup 5
+                                              </button>
+                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
+                                                aria-pressed="${activeRuling === "invalid"}"
+                                                class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${activeRuling === "invalid" ? "bg-red-600 text-white shadow-sm" : "text-slate-600 hover:text-red-700"}">
+                                                Invalid 0
+                                              </button>
+                                            </div>
+                                            ${activeRuling !== "auto" ? `
+                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
+                                                class="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
+                                                Reset
+                                              </button>` : ""}
+                                          </div>` : `
+                                          <p class="text-[11px] font-medium text-slate-400">
+                                            ${activeRuling !== "auto" ? "Admin ruling applied" : "Admin controls rulings"}
+                                          </p>`
+                                      ) : ""}
+                                    </div>
+                                  </td>`;
+                              }).join("")}
+                            </tr>`;
+                        }).join("")}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  <section class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                    <div class="text-xs text-slate-600 space-y-0.5">
+                      <p class="font-semibold text-slate-800">Admin-Moderated Review · No Answer Editing</p>
+                      <p>10 pts unique valid word · 5 pts same/duplicate word · 0 pts blank, invalid, or disapproved by Admin</p>
+                    </div>
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
+                      <button type="button" data-action="reset-game" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap">New Game / Reset</button>
+                      ${isAdmin
+                        ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap">Confirm Scores &amp; Continue →</button>`
+                        : `<p class="text-sm font-medium text-slate-600">Waiting for Room Admin (${escapeHtml(adminName)}) to confirm...</p>`}
+                    </div>
+                  </section>
                 </div>
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
-                  <button type="button" data-action="reset-game" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap">New Game / Reset</button>
-                  ${canConfirm
-                    ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap">Confirm Scores & Continue →</button>`
-                    : `<p class="text-sm font-medium text-slate-600">Waiting for room host to confirm final scores...</p>`}
-                </div>
-              </section>
+
+                <!-- Review Chat / Appeals Message Box -->
+                <aside id="review-chat-panel" aria-label="Review Chat" class="lg:col-span-4 rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col lg:sticky lg:top-6 overflow-hidden">
+                  <div class="border-b border-slate-100 px-4 py-3.5 bg-slate-50/70">
+                    <div class="flex items-center justify-between gap-2">
+                      <h2 class="font-display text-base font-extrabold text-slate-900">Review Chat</h2>
+                      <span class="font-mono-tabular text-[11px] font-semibold text-slate-500">${roundMessages.length} ${roundMessages.length === 1 ? "msg" : "msgs"}</span>
+                    </div>
+                    <p class="mt-0.5 text-xs text-slate-500">
+                      Explain a word, flag an invalid entry, or ask Admin to mark a 5-pt duplicate.
+                    </p>
+                  </div>
+
+                  <div id="review-chat-list" class="p-4 space-y-2.5 max-h-[340px] lg:max-h-[420px] min-h-[180px] overflow-y-auto bg-white">
+                    ${roundMessages.length === 0 ? `
+                      <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3.5 py-6 text-center">
+                        <p class="text-xs font-semibold text-slate-600">No appeal messages yet</p>
+                        <p class="mt-1 text-[11px] text-slate-500">Send a quick note below if you want the Room Admin to review a word or duplicate match.</p>
+                      </div>` : roundMessages.map((msg) => {
+                        const isMine = msg.senderId === chatSender.id;
+                        return `
+                          <div class="flex flex-col ${isMine ? "items-end" : "items-start"}">
+                            <div class="max-w-[90%] rounded-lg border px-3 py-2 text-xs ${
+                              isMine
+                                ? "border-emerald-200 bg-emerald-50/80 text-slate-900"
+                                : "border-slate-200 bg-slate-50 text-slate-900"
+                            }">
+                              <div class="flex items-center gap-1.5 text-[11px]">
+                                <span class="font-bold ${isMine ? "text-emerald-900" : "text-slate-800"}">${escapeHtml(msg.senderName || "Player")}</span>
+                                ${msg.isAdmin ? `<span class="rounded bg-emerald-700 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">Admin</span>` : ""}
+                                ${msg.createdAt ? `<span class="text-slate-400 font-mono-tabular">${escapeHtml(formatChatTime(msg.createdAt))}</span>` : ""}
+                              </div>
+                              <p class="mt-1 break-words text-slate-800 leading-relaxed">${escapeHtml(msg.text || "")}</p>
+                            </div>
+                          </div>`;
+                      }).join("")}
+                  </div>
+
+                  <form id="review-chat-form" class="border-t border-slate-200 bg-slate-50/60 p-3.5 space-y-2">
+                    <div class="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Sending as <strong class="text-slate-700">${escapeHtml(chatSender.name)}${chatSender.isAdmin ? " (Admin)" : ""}</strong></span>
+                      <span class="font-mono-tabular">${(state.reviewChatDraft || "").length}/240</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input id="review-chat-input" type="text" maxlength="240" autocomplete="off"
+                        value="${escapeHtml(state.reviewChatDraft || "")}"
+                        placeholder="Explain your word or flag a duplicate..."
+                        class="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20" />
+                      <button type="submit"
+                        class="shrink-0 rounded-lg bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-800 transition-colors">
+                        Send
+                      </button>
+                    </div>
+                  </form>
+                </aside>
+              </div>
             </main>`;
         }
 
@@ -2024,7 +2241,7 @@
           const totalRounds = isOnline ? state.room.totalRounds : state.totalRounds;
           const letterMode = isOnline ? state.room.letterMode : state.letterMode;
           const usedLetters = isOnline ? (state.room.usedLetters || []) : state.usedLetters;
-          const canModerate = !isOnline || state.room.hostId === myClientId;
+          const canModerate = isCurrentUserAdmin();
           const reviewerId = getCurrentReviewerId();
           const standings = calculateStandings(players, resultsList);
           const isFinal = result.roundNumber >= totalRounds;
@@ -2067,7 +2284,6 @@
                           </td>
                           ${result.playerScores.map((ps) => {
                             const c = ps.cells[cat.id];
-                            const isSelf = ps.playerId === reviewerId;
                             const hasWord = c.raw.trim().length > 0;
                             const isValidNow = c.points > 0;
                             const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
@@ -2080,10 +2296,10 @@
                                   </div>
                                   <div class="flex flex-col items-end gap-1 shrink-0">
                                     <span class="font-mono-tabular text-xs font-bold ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
-                                    ${canModerate && hasWord && !isSelf ? `
-                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="${isValidNow ? "rejected" : "approved"}"
+                                    ${canModerate && hasWord ? `
+                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="${isValidNow ? "invalid" : "valid"}"
                                         class="text-[11px] font-semibold underline ${isValidNow ? "text-slate-500 hover:text-slate-800" : "text-emerald-700"}">
-                                        ${isValidNow ? "Disapprove" : "Approve"}
+                                        ${isValidNow ? "Invalid 0" : "Valid 10"}
                                       </button>` : ""}
                                   </div>
                                 </div>
@@ -2180,9 +2396,7 @@
               CATEGORIES.forEach((cat) => {
                 const cell = ps.cells[cat.id];
                 if (!cell || !cell.raw || !cell.raw.trim()) return;
-                const v = cell.voteInfo || { approveCount: 0, rejectCount: 0, isTied: false };
-                const hasVotes = v.approveCount > 0 || v.rejectCount > 0;
-                const isChallenged = cell.appealDecision !== "auto" || hasVotes;
+                const isChallenged = cell.appealDecision && cell.appealDecision !== "auto";
                 if (isChallenged) {
                   const lbl = formatCatLabel(cat);
                   challenged.push({
@@ -2192,9 +2406,6 @@
                     decision: cell.appealDecision,
                     points: cell.points,
                     reason: cell.reason,
-                    approveCount: v.approveCount,
-                    rejectCount: v.rejectCount,
-                    isTied: Boolean(v.isTied),
                   });
                 }
               });
@@ -2315,14 +2526,17 @@
                             <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Challenged Words</p>
                             <ul class="space-y-1.5">
                               ${entry.challenged.map((ch) => {
-                                const isRejected = ch.decision === "rejected";
-                                const isApproved = ch.decision === "approved";
-                                const statusColor = isRejected ? "text-red-700" : isApproved ? "text-emerald-700" : "text-amber-700";
+                                const isRejected = ch.decision === "invalid" || ch.decision === "rejected";
+                                const isDuplicate = ch.decision === "duplicate";
+                                const isApproved = ch.decision === "valid" || ch.decision === "approved";
+                                const statusColor = isRejected ? "text-red-700" : isDuplicate ? "text-amber-700" : isApproved ? "text-emerald-700" : "text-amber-700";
                                 const statusLabel = isRejected
                                   ? "Disapproved · +0"
-                                  : isApproved
-                                    ? `Approved · +${ch.points}`
-                                    : `Vote tied · +${ch.points}`;
+                                  : isDuplicate
+                                    ? "Duplicate · +5"
+                                    : isApproved
+                                      ? `Approved · +${ch.points}`
+                                      : `Ruled · +${ch.points}`;
                                 return `
                                   <li class="rounded-md border border-slate-200/80 bg-white px-2.5 py-2 text-xs">
                                     <div class="flex items-baseline justify-between gap-2">
@@ -2569,6 +2783,11 @@
         }
 
         function render() {
+          const activeEl = document.activeElement;
+          const preserveChatFocus = Boolean(activeEl && activeEl.id === "review-chat-input");
+          const chatSelStart = preserveChatFocus ? activeEl.selectionStart : null;
+          const chatSelEnd = preserveChatFocus ? activeEl.selectionEnd : null;
+
           document.body.dataset.state = state.paused && state.phase === "playing" ? "paused" : state.phase;
           const root = document.getElementById("app");
           if (state.phase === "title") root.innerHTML = renderTitle();
@@ -2578,6 +2797,20 @@
           else if (state.phase === "appeal") root.innerHTML = renderAppeal();
           else if (state.phase === "results") root.innerHTML = renderResults();
           else if (state.phase === "gameover") root.innerHTML = renderPodium();
+
+          if (state.phase === "appeal") {
+            const chatList = document.getElementById("review-chat-list");
+            if (chatList) chatList.scrollTop = chatList.scrollHeight;
+            if (preserveChatFocus) {
+              const chatInput = document.getElementById("review-chat-input");
+              if (chatInput) {
+                chatInput.focus();
+                if (typeof chatSelStart === "number" && typeof chatSelEnd === "number") {
+                  try { chatInput.setSelectionRange(chatSelStart, chatSelEnd); } catch {}
+                }
+              }
+            }
+          }
 
           if (state.phase === "gameover") {
             const isOnline = state.mode === "online" && state.room;
@@ -2609,6 +2842,12 @@
           if (t.id === "solo-name") { state.soloName = t.value; return; }
           if (t.id === "online-name") { state.onlineName = t.value; return; }
           if (t.id === "join-code") { state.joinCode = t.value.toUpperCase(); return; }
+          if (t.id === "review-chat-input") {
+            state.reviewChatDraft = t.value;
+            const counter = t.closest("form")?.querySelector(".font-mono-tabular");
+            if (counter) counter.textContent = `${t.value.length}/240`;
+            return;
+          }
           if (t.classList.contains("local-player-input")) {
             const pid = t.dataset.playerId;
             const p = state.localPlayers.find((x) => x.id === pid);
@@ -2678,6 +2917,16 @@
               submitOnlineSheet(false);
             } else {
               submitLocalTurn(false);
+            }
+          } else if (e.target.id === "review-chat-form") {
+            e.preventDefault();
+            const input = document.getElementById("review-chat-input");
+            const text = input ? input.value : state.reviewChatDraft;
+            if (!String(text || "").trim()) return;
+            if (state.mode === "online" && state.room) {
+              sendOnlineReviewMessage(text);
+            } else {
+              sendLocalReviewMessage(text);
             }
           }
         });
@@ -2756,6 +3005,7 @@
             }
           }
           else if (act === "confirm-appeals") {
+            if (!isCurrentUserAdmin()) return;
             if (state.mode === "online" && state.room) {
               confirmOnlineAppeals();
             } else {
@@ -2764,6 +3014,7 @@
             }
           }
           else if (act === "reopen-appeal") {
+            if (!isCurrentUserAdmin()) return;
             if (state.mode === "online" && state.room) {
               reopenOnlineAppeal();
             } else {
@@ -2804,6 +3055,7 @@
                   submissions: {},
                   submittedMap: {},
                   appeals: {},
+                  reviewMessages: [],
                 });
               } catch (err) {
                 state.onlineError = formatFirebaseError(err, "Failed to reset room.");
