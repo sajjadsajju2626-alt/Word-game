@@ -92,11 +92,51 @@
         // =====================================================================
         const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
         const MALAYALAM_ALPHABET = [
-          "അ", "ആ", "ഇ", "ഉ", "എ", "ഏ", "ഒ",
-          "ക", "ഖ", "ഗ", "ച", "ജ", "ത", "ദ", "ധ", "ന",
-          "പ", "ഫ", "ബ", "ഭ", "മ", "യ", "ര", "ല", "വ",
-          "ശ", "ഷ", "സ", "ഹ",
+          "അ / ഇ / ഉ / എ / ഒ",
+          "ക / ഖ",
+          "ഗ / ഘ",
+          "ച / ഛ",
+          "ജ / ഝ",
+          "ട / ഠ",
+          "ഡ / ഢ",
+          "ത / ഥ",
+          "ദ / ധ",
+          "ഞ / ണ / ന",
+          "പ / ഫ",
+          "ബ / ഭ",
+          "മ",
+          "യ",
+          "ര",
+          "ല / ള",
+          "വ",
+          "ശ / ഷ / സ",
+          "ഹ",
+          "ഴ",
+          "റ",
         ];
+        const MALAYALAM_GROUP_CHARS = {
+          "അ / ഇ / ഉ / എ / ഒ": ["അ", "ആ", "ഇ", "ഈ", "ഉ", "ഊ", "ഋ", "എ", "ഏ", "ഐ", "ഒ", "ഓ", "ഔ"],
+          "ക / ഖ": ["ക", "ഖ"],
+          "ഗ / ഘ": ["ഗ", "ഘ"],
+          "ച / ഛ": ["ച", "ഛ"],
+          "ജ / ഝ": ["ജ", "ഝ"],
+          "ട / ഠ": ["ട", "ഠ"],
+          "ഡ / ഢ": ["ഡ", "ഢ"],
+          "ത / ഥ": ["ത", "ഥ"],
+          "ദ / ധ": ["ദ", "ധ"],
+          "ഞ / ണ / ന": ["ഞ", "ണ", "ന"],
+          "പ / ഫ": ["പ", "ഫ"],
+          "ബ / ഭ": ["ബ", "ഭ"],
+          "മ": ["മ"],
+          "യ": ["യ"],
+          "ര": ["ര"],
+          "ല / ള": ["ല", "ള"],
+          "വ": ["വ"],
+          "ശ / ഷ / സ": ["ശ", "ഷ", "സ"],
+          "ഹ": ["ഹ"],
+          "ഴ": ["ഴ"],
+          "റ": ["റ"],
+        };
         const MALAYALAM_CHILLU_TO_BASE = {
           "ൺ": "ണ",
           "ൻ": "ന",
@@ -173,6 +213,12 @@
           "ഷ": { name: ["ഷാജി", "ഷീല", "ഷെറിൻ", "ഷമീർ"], place: ["ഷൊർണൂർ", "ഷാർജ", "ഷിക്കാഗോ", "ഷില്ലോംഗ്"], animal: ["ഷാർക്ക്", "ഷട്പദം", "ഷീപ്പ്"], plant: ["ഷമാം", "ഷുഗർകെയ്ൻ", "ഷാംറോക്ക്"], thing: ["ഷർട്ട്", "ഷൂസ്", "ഷെൽഫ്", "ഷാമ്പൂ"] },
           "സ": { name: ["സജ്ജാദ്", "സ്നേഹ", "സുരേഷ്", "സലീം"], place: ["സുൽത്താൻ ബത്തേരി", "സിംഗപ്പൂർ", "സിഡ്നി", "സിയോൾ"], animal: ["സിംഹം", "സ്രാവ്", "സീബ്ര", "സർപ്പം"], plant: ["സൂര്യകാന്തി", "സപ്പോട്ട", "സവാള", "സ്ട്രോബെറി"], thing: ["സോപ്പ്", "സൈക്കിൾ", "സോഫ", "സ്യൂട്ട്കേസ്"] },
           "ഹ": { name: ["ഹരീഷ്", "ഹേമ", "ഹരി", "ഹസീന"], place: ["ഹരിപ്പാട്", "ഹൈദരാബാദ്", "ഹംപി", "ഹവാന"], animal: ["ഹംസം", "ഹിപ്പോപ്പൊട്ടാമസ്", "ഹൈറൻ", "ഹമ്മിംഗ്ബേർഡ്"], plant: ["ഹൈബിസ്കസ്", "ഹേസൽനട്ട്", "ഹോളി"], thing: ["ഹെൽമെറ്റ്", "ഹാമർ", "ഹാർമോണിയം", "ഹെഡ്ഫോൺ"] },
+          "ട": { name: ["ടോം", "ടീന", "ടോണി", "ടൈറ്റസ്"], place: ["ടോക്കിയോ", "ടൊറന്റോ", "ടാൻസാനിയ", "ടർക്കി"], animal: ["ടൈഗർ", "ടർക്കി", "ടൂക്കൻ", "ടോർട്ടോയ്സ്"], plant: ["ടൊമാറ്റോ", "ട്യൂലിപ്പ്", "ടാപ്പിയോക്ക", "ടീക്ക്"], thing: ["ടേബിൾ", "ടോർച്ച്", "ടിവി", "ടവൽ"] },
+          "ഡ": { name: ["ഡാനിയൽ", "ഡയാന", "ഡേവിഡ്", "ഡോളി"], place: ["ഡൽഹി", "ഡബ്ലിൻ", "ഡെന്മാർക്ക്", "ഡാർജിലിംഗ്"], animal: ["ഡോൾഫിൻ", "ഡക്ക്", "ഡോങ്കി", "ഡ്രാഗൺഫ്ലൈ"], plant: ["ഡാലിയ", "ഡ്രാഗൺ ഫ്രൂട്ട്", "ഡെയ്സി", "ഡേറ്റ്സ്"], thing: ["ഡ്രം", "ഡെസ്ക്", "ഡയറി", "ഡസ്റ്റർ"] },
+          "ഞ": { name: ["ഞരളത്ത്"], place: ["ഞാറക്കൽ", "ഞീഴൂർ", "ഞാങ്ങാട്ടിരി"], animal: ["ഞണ്ട്", "ഞാറപ്പക്ഷി"], plant: ["ഞാവൽ", "ഞെരിഞ്ഞിൽ", "ഞാറ", "ഞവര"], thing: ["ഞാൺ", "ഞാറ്റടി"] },
+          "ള": { name: ["ളോഹൻ"], place: ["ളാഹ", "ളാലം"], animal: ["ളോഹപ്പക്ഷി"], plant: ["ളാഹക്കായ"], thing: ["ളോഹ"] },
+          "ഴ": { name: ["ഴാങ്"], place: ["ഴാങ്ജിയാജി"], animal: ["ഴോലപ്പക്ഷി"], plant: ["ഴാങ്ങൽ"], thing: ["ഴാലർ"] },
+          "റ": { name: ["റഹീം", "റഷീദ്", "റീന", "റോഹൻ"], place: ["റാന്നി", "റോം", "റഷ്യ", "റിയാദ്"], animal: ["റാബിറ്റ്", "റൈനോ", "റോബിൻ", "റൂസ്റ്റർ"], plant: ["റോസാപ്പൂവ്", "റംബുട്ടാൻ", "റാസ്ബെറി", "റബ്ബർ"], thing: ["റേഡിയോ", "റിംഗ്", "റൂളർ", "റിബൺ"] },
         };
 
         const MALAYALAM_INITIAL_MAP = {
@@ -261,7 +307,39 @@
 
         function getDefaultLetter(lang) {
           const effectiveLang = lang || state.language;
-          return effectiveLang === "malayalam" ? "ക" : "K";
+          return effectiveLang === "malayalam" ? "ക / ഖ" : "K";
+        }
+
+        function getAcceptedMalayalamChars(targetLetter) {
+          const clean = normalizeTargetLetter(targetLetter);
+          if (MALAYALAM_GROUP_CHARS[clean]) return MALAYALAM_GROUP_CHARS[clean];
+          if (clean.includes("/")) {
+            const expanded = [];
+            clean.split("/").map((p) => p.trim()).filter(Boolean).forEach((p) => {
+              const base = MALAYALAM_CHILLU_TO_BASE[p] || p;
+              if (!expanded.includes(base)) expanded.push(base);
+            });
+            return expanded;
+          }
+          const base = MALAYALAM_CHILLU_TO_BASE[clean] || clean;
+          return [base];
+        }
+
+        function getLetterBadgeStyle(letter, variant) {
+          const isClubbed = String(letter || "").includes("/");
+          if (variant === "handoff") {
+            return isClubbed
+              ? "inline-flex h-16 min-w-[4.5rem] px-5 text-lg sm:text-xl whitespace-nowrap"
+              : "flex h-16 w-16 text-3xl";
+          }
+          if (variant === "header") {
+            return isClubbed
+              ? "flex h-11 min-w-[2.75rem] px-2.5 text-xs sm:text-sm whitespace-nowrap"
+              : "flex h-11 w-11 text-2xl";
+          }
+          return isClubbed
+            ? "flex h-12 min-w-[3rem] px-3 text-xs sm:text-sm whitespace-nowrap"
+            : "flex h-12 w-12 text-2xl";
         }
 
         function normalizeWord(raw) {
@@ -288,8 +366,7 @@
           if (!leading) return false;
 
           if (isMalayalamLetter(cleanTarget)) {
-            const targetBase = MALAYALAM_CHILLU_TO_BASE[cleanTarget] || cleanTarget;
-            return leading === targetBase;
+            return getAcceptedMalayalamChars(cleanTarget).includes(leading);
           }
 
           if (leading.toUpperCase() === cleanTarget) return true;
@@ -307,12 +384,24 @@
           return false;
         }
 
+        function getDictionaryPoolForTarget(letter, catId) {
+          const key = normalizeTargetLetter(letter);
+          if (isMalayalamLetter(key)) {
+            const chars = getAcceptedMalayalamChars(key);
+            const merged = [];
+            chars.forEach((ch) => {
+              const items = (MALAYALAM_WORD_DICTIONARY[ch] || {})[catId] || [];
+              items.forEach((w) => merged.push(w));
+            });
+            return merged;
+          }
+          return (WORD_DICTIONARY[key] || {})[catId] || [];
+        }
+
         function isInDictionary(word, letter, catId) {
           const norm = normalizeWord(word);
           if (!norm) return false;
-          const key = normalizeTargetLetter(letter);
-          const dictEntry = isMalayalamLetter(key) ? MALAYALAM_WORD_DICTIONARY[key] : WORD_DICTIONARY[key];
-          const pool = (dictEntry || {})[catId] || [];
+          const pool = getDictionaryPoolForTarget(letter, catId);
           return pool.some((item) => normalizeWord(item) === norm);
         }
 
@@ -456,13 +545,10 @@
         }
 
         function pickBotAnswers(targetLetter, difficulty) {
-          const key = normalizeTargetLetter(targetLetter);
-          const dict = isMalayalamLetter(key) ? MALAYALAM_WORD_DICTIONARY[key] : WORD_DICTIONARY[key];
           const ans = createEmptyAnswers();
-          if (!dict) return ans;
           const blankChance = difficulty === "casual" ? 0.14 : 0.03;
           for (const cat of CATEGORIES) {
-            const pool = dict[cat.id] || [];
+            const pool = getDictionaryPoolForTarget(targetLetter, cat.id);
             if (!pool.length) continue;
             ans[cat.id] = Math.random() < blankChance ? "" : pool[Math.floor(Math.random() * pool.length)];
           }
@@ -1552,10 +1638,10 @@
                           class="rounded-md px-2.5 py-2 text-xs font-semibold leading-tight ${state.letterMode === "manual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">${state.language === "malayalam" ? "അക്ഷരം തിരഞ്ഞെടുക്കുക / Pick Letter" : "Pick A–Z"}</button>
                       </div>
                       ${state.letterMode === "manual" ? `
-                        <div class="grid grid-cols-7 gap-1 pt-1">
+                        <div class="${state.language === "malayalam" ? "flex flex-wrap gap-1.5" : "grid grid-cols-7 gap-1"} pt-1">
                           ${getActiveAlphabet(state.language).map((l) => `
-                            <button type="button" data-action="set-manual-letter" data-letter="${l}"
-                              class="h-8 rounded-md font-display ${state.language === "malayalam" ? "text-sm" : "text-xs"} font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${l}</button>`).join("")}
+                            <button type="button" data-action="set-manual-letter" data-letter="${escapeHtml(l)}"
+                              class="${state.language === "malayalam" ? "min-h-8 px-2.5 py-1 text-xs sm:text-sm whitespace-nowrap" : "h-8 text-xs"} rounded-md font-display font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${escapeHtml(l)}</button>`).join("")}
                         </div>` : ""}
                     </div>
 
@@ -1635,8 +1721,8 @@
                   Previous answers are hidden. When ${escapeHtml(player.name)} is ready, reveal the sheet for letter
                   <span class="font-display font-extrabold text-emerald-800">${state.targetLetter}</span>.
                 </p>
-                <div class="mx-auto mt-6 flex h-16 w-16 items-center justify-center rounded-xl bg-emerald-700 font-display text-3xl font-extrabold text-white">
-                  ${state.targetLetter}
+                <div class="mx-auto mt-6 ${getLetterBadgeStyle(state.targetLetter, "handoff")} items-center justify-center rounded-xl bg-emerald-700 font-display font-extrabold text-white">
+                  ${escapeHtml(state.targetLetter)}
                 </div>
                 <button type="button" data-action="reveal-handoff"
                   class="mt-7 w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">
@@ -1671,7 +1757,7 @@
             <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
               <div class="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
                 <div class="flex items-center gap-4 min-w-0">
-                  <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-700 font-display text-2xl font-extrabold text-white">${letter}</div>
+                  <div class="${getLetterBadgeStyle(letter, "header")} shrink-0 items-center justify-center rounded-lg bg-emerald-700 font-display font-extrabold text-white">${escapeHtml(letter)}</div>
                   <div class="min-w-0">
                     <div class="text-xs font-semibold text-slate-500 font-mono-tabular">
                       Round ${round} of ${totalRounds}${isOnline ? ` · Room ${escapeHtml(state.room.roomCode)}` : ""}
@@ -1801,7 +1887,7 @@
             <main class="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10 space-y-7">
               <section class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-4">
-                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-600 font-display text-2xl font-extrabold text-white">${result.letter}</div>
+                  <div class="${getLetterBadgeStyle(result.letter, "card")} shrink-0 items-center justify-center rounded-xl bg-amber-600 font-display font-extrabold text-white">${escapeHtml(result.letter)}</div>
                   <div>
                     <p class="text-xs font-semibold text-amber-700">അപ്പീൽ സിസ്റ്റം · Round ${result.roundNumber} of ${totalRounds}</p>
                     <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal & Review Answers</h1>
@@ -1947,7 +2033,7 @@
             <main class="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10 space-y-8">
               <section class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-4">
-                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-700 font-display text-2xl font-extrabold text-white">${result.letter}</div>
+                  <div class="${getLetterBadgeStyle(result.letter, "card")} shrink-0 items-center justify-center rounded-xl bg-emerald-700 font-display font-extrabold text-white">${escapeHtml(result.letter)}</div>
                   <div>
                     <p class="text-xs font-semibold text-slate-500 font-mono-tabular">Round ${result.roundNumber} of ${totalRounds} Results</p>
                     <h1 class="font-display text-2xl font-extrabold text-slate-900">Letter "${result.letter}" Scorecard</h1>
@@ -2037,10 +2123,10 @@
                     return `
                     <div>
                       <span class="block text-xs font-semibold text-slate-600">${roomLang === "malayalam" ? "അടുത്ത അക്ഷരം തിരഞ്ഞെടുക്കുക · Pick Next Letter" : "Pick Next Round Letter"}</span>
-                      <div class="mt-2 grid grid-cols-7 gap-1">
+                      <div class="mt-2 ${roomLang === "malayalam" ? "flex flex-wrap gap-1.5" : "grid grid-cols-7 gap-1"}">
                         ${nextAlphabet.map((l) => `
-                          <button type="button" data-action="set-manual-letter" data-letter="${l}"
-                            class="h-7 rounded font-display ${roomLang === "malayalam" ? "text-sm" : "text-xs"} font-bold ${selectedNext === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${l}</button>`).join("")}
+                          <button type="button" data-action="set-manual-letter" data-letter="${escapeHtml(l)}"
+                            class="${roomLang === "malayalam" ? "min-h-7 px-2.5 py-1 text-xs sm:text-sm whitespace-nowrap" : "h-7 text-xs"} rounded font-display font-bold ${selectedNext === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${escapeHtml(l)}</button>`).join("")}
                       </div>
                     </div>`;
                   })() : ""}
