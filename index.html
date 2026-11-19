@@ -25,10 +25,15 @@
       rel="stylesheet"
     />
     <style>
+      html, body {
+        overscroll-behavior: none;
+        overscroll-behavior-y: none;
+      }
       body {
         font-family: "Plus Jakarta Sans", "Noto Sans Malayalam", system-ui, sans-serif;
         background-color: #f8fafc;
         color: #0f172a;
+        -webkit-overflow-scrolling: touch;
       }
       h1, h2, h3, .font-display {
         font-family: "Bricolage Grotesque", "Noto Sans Malayalam", system-ui, sans-serif;
@@ -486,11 +491,182 @@
           return humans[0] ? humans[0].id : "";
         }
 
+        const STORAGE_KEY = "peru_sadhanam_game_state_v1";
+
         let timerInterval = null;
         let roomUnsubscribe = null;
         let draftSyncTimer = null;
         let finalizingRoundFlag = false;
         let lastUrgentSecond = -1;
+        let lastSavedOnlineSecond = -1;
+        let pendingOnlineRestore = null;
+
+        function saveGameState() {
+          if (state.phase === "title") return;
+          try {
+            const payload = {
+              version: 1,
+              savedAt: Date.now(),
+              phase: state.phase,
+              mode: state.mode,
+              language: state.language,
+              totalRounds: state.totalRounds,
+              timerSeconds: state.timerSeconds,
+              letterMode: state.letterMode,
+              manualLetter: state.manualLetter,
+              soloName: state.soloName,
+              botCount: state.botCount,
+              botDifficulty: state.botDifficulty,
+              localPlayers: state.localPlayers,
+              onlineName: state.onlineName,
+              joinCode: state.joinCode,
+              activePlayers: state.activePlayers,
+              currentRound: state.currentRound,
+              targetLetter: state.targetLetter,
+              usedLetters: state.usedLetters,
+              turnIndex: state.turnIndex,
+              timeLeft: state.timeLeft,
+              paused: state.paused,
+              answers: state.answers,
+              roundSubmissions: state.roundSubmissions,
+              roundResults: state.roundResults,
+              appeals: state.appeals,
+              reviewingPlayerId: state.reviewingPlayerId,
+              submittedOnline: state.submittedOnline,
+              onlineTimeLeft: state.onlineTimeLeft,
+              savedRoomCode: state.room ? state.room.roomCode : (pendingOnlineRestore ? pendingOnlineRestore.roomCode : ""),
+              savedRoomRound: state.room ? (state.room.currentRound || 0) : (pendingOnlineRestore ? pendingOnlineRestore.currentRound : 0),
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+          } catch {
+            // Ignore storage quota or private mode errors
+          }
+        }
+
+        function clearSavedGameState() {
+          pendingOnlineRestore = null;
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+          } catch {
+            // Ignore storage errors
+          }
+        }
+
+        function restoreGameState() {
+          let raw = null;
+          try {
+            raw = localStorage.getItem(STORAGE_KEY);
+          } catch {
+            return;
+          }
+          if (!raw) return;
+
+          let saved = null;
+          try {
+            saved = JSON.parse(raw);
+          } catch {
+            clearSavedGameState();
+            return;
+          }
+
+          if (!saved || typeof saved !== "object") {
+            clearSavedGameState();
+            return;
+          }
+
+          const validPhases = ["lobby", "handoff", "playing", "appeal", "results", "gameover"];
+          if (!validPhases.includes(saved.phase)) {
+            clearSavedGameState();
+            return;
+          }
+
+          // If user opened an explicit ?room=XXXX invite link to a different room, honor the link
+          if (initialJoinCode && initialJoinCode !== saved.savedRoomCode) {
+            return;
+          }
+
+          if (["solo", "pass_and_play", "online"].includes(saved.mode)) state.mode = saved.mode;
+          if (["bilingual", "malayalam", "english"].includes(saved.language)) state.language = saved.language;
+          if (typeof saved.totalRounds === "number" && saved.totalRounds > 0) state.totalRounds = saved.totalRounds;
+          if (typeof saved.timerSeconds === "number" && saved.timerSeconds > 0) state.timerSeconds = saved.timerSeconds;
+          if (["random", "manual"].includes(saved.letterMode)) state.letterMode = saved.letterMode;
+          if (typeof saved.manualLetter === "string" && saved.manualLetter.length === 1) state.manualLetter = saved.manualLetter.toUpperCase();
+          if (typeof saved.soloName === "string") state.soloName = saved.soloName;
+          if (typeof saved.botCount === "number" && saved.botCount >= 1 && saved.botCount <= 3) state.botCount = saved.botCount;
+          if (["casual", "sharp"].includes(saved.botDifficulty)) state.botDifficulty = saved.botDifficulty;
+          if (Array.isArray(saved.localPlayers) && saved.localPlayers.length >= 2) state.localPlayers = saved.localPlayers;
+          if (typeof saved.onlineName === "string") state.onlineName = saved.onlineName;
+          if (typeof saved.joinCode === "string") state.joinCode = saved.joinCode;
+
+          const restoredAnswers = { ...createEmptyAnswers() };
+          if (saved.answers && typeof saved.answers === "object") {
+            CATEGORIES.forEach((cat) => {
+              if (typeof saved.answers[cat.id] === "string") restoredAnswers[cat.id] = saved.answers[cat.id];
+            });
+          }
+
+          if (saved.mode === "online") {
+            const roomCode = typeof saved.savedRoomCode === "string" ? saved.savedRoomCode.trim().toUpperCase() : "";
+            if (!roomCode || !db) {
+              clearSavedGameState();
+              return;
+            }
+            pendingOnlineRestore = {
+              roomCode,
+              currentRound: Number(saved.savedRoomRound) || 0,
+              answers: restoredAnswers,
+              submittedOnline: Boolean(saved.submittedOnline),
+            };
+            state.answers = { ...restoredAnswers };
+            state.submittedOnline = Boolean(saved.submittedOnline);
+            state.onlineTimeLeft = typeof saved.onlineTimeLeft === "number" && saved.onlineTimeLeft >= 0
+              ? saved.onlineTimeLeft
+              : state.timerSeconds;
+            state.joinCode = roomCode;
+            subscribeToRoom(roomCode);
+            return;
+          }
+
+          // Local modes (solo | pass_and_play)
+          if (!Array.isArray(saved.activePlayers) || saved.activePlayers.length === 0) {
+            clearSavedGameState();
+            return;
+          }
+          const needsResults = ["appeal", "results", "gameover"].includes(saved.phase);
+          if (needsResults && (!Array.isArray(saved.roundResults) || saved.roundResults.length === 0)) {
+            clearSavedGameState();
+            return;
+          }
+          const humans = saved.activePlayers.filter((p) => !p.isBot);
+          if (["handoff", "playing"].includes(saved.phase) && humans.length === 0) {
+            clearSavedGameState();
+            return;
+          }
+
+          state.activePlayers = saved.activePlayers;
+          state.currentRound = Number(saved.currentRound) || 1;
+          state.targetLetter = typeof saved.targetLetter === "string" && saved.targetLetter ? saved.targetLetter.toUpperCase() : "K";
+          state.usedLetters = Array.isArray(saved.usedLetters) ? saved.usedLetters : [state.targetLetter];
+          state.turnIndex = Number.isInteger(saved.turnIndex) && saved.turnIndex >= 0 && saved.turnIndex < Math.max(1, humans.length)
+            ? saved.turnIndex
+            : 0;
+          state.timeLeft = typeof saved.timeLeft === "number" && saved.timeLeft >= 0 ? saved.timeLeft : state.timerSeconds;
+          state.paused = Boolean(saved.paused);
+          state.answers = restoredAnswers;
+          state.roundSubmissions = Array.isArray(saved.roundSubmissions) ? saved.roundSubmissions : [];
+          state.roundResults = Array.isArray(saved.roundResults) ? saved.roundResults : [];
+          state.appeals = saved.appeals && typeof saved.appeals === "object" ? saved.appeals : {};
+          state.reviewingPlayerId = typeof saved.reviewingPlayerId === "string" ? saved.reviewingPlayerId : "";
+          state.phase = saved.phase;
+
+          if (state.phase === "playing" && !state.paused) {
+            if (state.timeLeft <= 0) {
+              submitLocalTurn(true);
+            } else {
+              startTimer();
+            }
+          }
+        }
 
         function stopTimer() {
           if (timerInterval) {
@@ -573,6 +749,7 @@
         function startTimer() {
           stopTimer();
           lastUrgentSecond = -1;
+          lastSavedOnlineSecond = -1;
 
           if (state.mode === "online" && state.room) {
             timerInterval = setInterval(() => {
@@ -583,6 +760,10 @@
               const msLeft = Math.max(0, (state.room.roundEndsAt || 0) - Date.now());
               const secs = Math.ceil(msLeft / 1000);
               state.onlineTimeLeft = secs;
+              if (secs !== lastSavedOnlineSecond) {
+                lastSavedOnlineSecond = secs;
+                saveGameState();
+              }
               if (secs > 0 && secs <= 10 && lastUrgentSecond !== secs) {
                 lastUrgentSecond = secs;
                 soundFx.playUrgentTick();
@@ -604,6 +785,7 @@
           timerInterval = setInterval(() => {
             if (state.phase !== "playing" || state.paused) return;
             state.timeLeft = Math.max(0, state.timeLeft - 1);
+            saveGameState();
             if (state.timeLeft > 0 && state.timeLeft <= 10) soundFx.playUrgentTick();
             if (state.timeLeft <= 0) {
               submitLocalTurn(true);
@@ -634,6 +816,7 @@
               if (!snap.exists) {
                 stopTimer();
                 detachRoomListener();
+                clearSavedGameState();
                 state.room = null;
                 state.phase = "title";
                 state.onlineError = `Room "${roomCode}" was closed or does not exist.`;
@@ -652,12 +835,29 @@
 
               if (incoming.phase === "playing" && (prevPhase !== "playing" || prevRound !== incoming.currentRound)) {
                 finalizingRoundFlag = false;
-                state.answers = createEmptyAnswers();
+                const isRestoringSameRound = Boolean(
+                  pendingOnlineRestore &&
+                  pendingOnlineRestore.roomCode === roomCode &&
+                  pendingOnlineRestore.currentRound === incoming.currentRound
+                );
+                if (isRestoringSameRound) {
+                  state.answers = { ...createEmptyAnswers(), ...pendingOnlineRestore.answers };
+                  const serverDraft = incoming.submissions && incoming.submissions[myClientId];
+                  if (serverDraft && CATEGORIES.every((c) => !state.answers[c.id])) {
+                    state.answers = { ...createEmptyAnswers(), ...serverDraft };
+                  }
+                  pendingOnlineRestore = null;
+                } else {
+                  pendingOnlineRestore = null;
+                  const serverDraft = incoming.submissions && incoming.submissions[myClientId];
+                  state.answers = serverDraft ? { ...createEmptyAnswers(), ...serverDraft } : createEmptyAnswers();
+                }
                 state.submittedOnline = Boolean(incoming.submittedMap && incoming.submittedMap[myClientId]);
                 state.onlineTimeLeft = Math.max(0, Math.ceil(((incoming.roundEndsAt || 0) - Date.now()) / 1000));
-                soundFx.playStart();
+                if (!isRestoringSameRound) soundFx.playStart();
                 startTimer();
               } else if (incoming.phase === "playing") {
+                pendingOnlineRestore = null;
                 const nowSubmitted = Boolean(incoming.submittedMap && incoming.submittedMap[myClientId]);
                 if (nowSubmitted) state.submittedOnline = true;
                 if (!timerInterval) startTimer();
@@ -677,9 +877,11 @@
                   if (statusEl) {
                     statusEl.textContent = `Sheet submitted · Waiting for other players (${submittedIds.length}/${players.length})`;
                   }
+                  saveGameState();
                   return;
                 }
               } else {
+                pendingOnlineRestore = null;
                 stopTimer();
               }
 
@@ -927,6 +1129,7 @@
           const r = state.room;
           stopTimer();
           detachRoomListener();
+          clearSavedGameState();
           state.room = null;
           state.submittedOnline = false;
           state.phase = "title";
@@ -939,6 +1142,39 @@
               });
             } catch {
               // Ignore cleanup errors on exit
+            }
+          }
+        }
+
+        async function resetGameToMenu() {
+          const r = state.room;
+          stopTimer();
+          detachRoomListener();
+          clearSavedGameState();
+          state.room = null;
+          state.submittedOnline = false;
+          state.paused = false;
+          state.activePlayers = [];
+          state.currentRound = 1;
+          state.usedLetters = [];
+          state.turnIndex = 0;
+          state.timeLeft = state.timerSeconds;
+          state.answers = createEmptyAnswers();
+          state.roundSubmissions = [];
+          state.roundResults = [];
+          state.appeals = {};
+          state.reviewingPlayerId = "";
+          state.onlineError = firebaseInitError;
+          state.phase = "title";
+          render();
+
+          if (db && r && r.phase === "lobby" && r.hostId !== myClientId) {
+            try {
+              await db.collection("rooms").doc(r.roomCode).update({
+                [`playersMap.${myClientId}`]: window.firebase.firestore.FieldValue.delete(),
+              });
+            } catch {
+              // Ignore cleanup errors on reset
             }
           }
         }
@@ -1299,6 +1535,10 @@
                   class="mt-7 w-full rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">
                   Reveal ${escapeHtml(player.name)}'s Sheet
                 </button>
+                <button type="button" data-action="reset-game"
+                  class="mt-3 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                  New Game / Reset
+                </button>
               </section>
             </main>`;
         }
@@ -1361,6 +1601,10 @@
                   Write a word starting with <span class="font-display text-base font-extrabold text-emerald-800">${letter}</span> for each category ·
                   <span id="ready-count" class="font-mono-tabular text-xs font-semibold text-slate-700">${readyCount}/5 ready</span>
                 </p>
+                <button type="button" data-action="reset-game"
+                  class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+                  New Game / Reset
+                </button>
               </div>
 
               ${state.onlineError ? `<p class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
@@ -1421,7 +1665,7 @@
                   <div class="space-y-2.5">
                     <button type="button" data-action="toggle-pause" class="w-full rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-800">Resume Game</button>
                     <button type="button" data-action="restart-round" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Restart Round</button>
-                    <button type="button" data-action="exit-menu" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Exit to Main Menu</button>
+                    <button type="button" data-action="reset-game" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">New Game / Reset</button>
                   </div>
                 </div>
               </div>` : ""}`;
@@ -1569,9 +1813,12 @@
                   <p class="font-semibold text-slate-800">Peer Review Rules · Self-Correction Disabled</p>
                   <p>10 pts unique valid word · 5 pts duplicate valid word · 0 pts blank, invalid, wrong letter, or disapproved by peers</p>
                 </div>
-                ${canConfirm
-                  ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shrink-0">Confirm Scores & Continue →</button>`
-                  : `<p class="text-sm font-medium text-slate-600">Waiting for room host to confirm final scores...</p>`}
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
+                  <button type="button" data-action="reset-game" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap">New Game / Reset</button>
+                  ${canConfirm
+                    ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap">Confirm Scores & Continue →</button>`
+                    : `<p class="text-sm font-medium text-slate-600">Waiting for room host to confirm final scores...</p>`}
+                </div>
               </section>
             </main>`;
         }
@@ -1692,6 +1939,7 @@
                          <button type="button" data-action="reopen-appeal" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">Reopen Appeal & Review</button>
                          <button type="button" data-action="finish-game" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">End Match Early & Show Podium</button>`
                     : `<p class="text-center text-sm font-medium text-slate-600">Waiting for host to advance...</p>`}
+                  <button type="button" data-action="reset-game" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">New Game / Reset</button>
                 </section>
               </div>
             </main>`;
@@ -1756,7 +2004,7 @@
 
               <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
                 ${(!isOnline || state.room.hostId === myClientId) ? `<button type="button" data-action="play-again" class="rounded-lg bg-emerald-700 px-6 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Play Again</button>` : ""}
-                <button type="button" data-action="${isOnline ? "leave-online-room" : "exit-menu"}" class="rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Main Menu</button>
+                <button type="button" data-action="reset-game" class="rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">New Game / Reset</button>
               </div>
             </main>`;
         }
@@ -1771,6 +2019,8 @@
           else if (state.phase === "appeal") root.innerHTML = renderAppeal();
           else if (state.phase === "results") root.innerHTML = renderResults();
           else if (state.phase === "gameover") root.innerHTML = renderPodium();
+
+          saveGameState();
 
           if (state.phase === "playing" && !state.paused && !state.submittedOnline) {
             const first = document.getElementById("cat-name");
@@ -1825,6 +2075,8 @@
                 }).catch(() => {});
               }, 350);
             }
+
+            saveGameState();
           }
         });
 
@@ -1981,16 +2233,66 @@
               startLocalGame();
             }
           }
-          else if (act === "exit-menu") {
-            stopTimer();
-            detachRoomListener();
-            state.paused = false;
-            state.room = null;
-            state.phase = "title";
-            render();
+          else if (act === "exit-menu" || act === "reset-game") {
+            resetGameToMenu();
           }
         });
 
+        // =====================================================================
+        // 9. PREVENT ACCIDENTAL PULL-TO-REFRESH & SAFETY-NET PERSISTENCE
+        // =====================================================================
+        let touchStartY = 0;
+        let touchStartX = 0;
+
+        function hasScrolledAncestor(el) {
+          let node = el;
+          while (node && node !== document.body && node !== document.documentElement) {
+            if (node.scrollTop > 0 && node.scrollHeight > node.clientHeight) {
+              const style = window.getComputedStyle(node);
+              if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                return true;
+              }
+            }
+            node = node.parentElement;
+          }
+          return false;
+        }
+
+        document.addEventListener(
+          "touchstart",
+          (e) => {
+            if (e.touches.length === 1) {
+              touchStartY = e.touches[0].clientY;
+              touchStartX = e.touches[0].clientX;
+            }
+          },
+          { passive: true }
+        );
+
+        document.addEventListener(
+          "touchmove",
+          (e) => {
+            if (state.phase === "title" || e.touches.length !== 1) return;
+            const dy = e.touches[0].clientY - touchStartY;
+            const dx = e.touches[0].clientX - touchStartX;
+            const isVerticalDownPull = dy > 0 && Math.abs(dy) > Math.abs(dx);
+            const atTopOfPage = (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+            if (isVerticalDownPull && atTopOfPage && !hasScrolledAncestor(e.target)) {
+              if (e.cancelable) e.preventDefault();
+            }
+          },
+          { passive: false }
+        );
+
+        window.addEventListener("pagehide", () => {
+          saveGameState();
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") saveGameState();
+        });
+
+        restoreGameState();
         render();
       })();
     </script>
