@@ -91,6 +91,20 @@
         // 2. CONSTANTS, CATEGORIES & A-Z BILINGUAL-FRIENDLY WORD DICTIONARY
         // =====================================================================
         const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+        const MALAYALAM_ALPHABET = [
+          "അ", "ആ", "ഇ", "ഉ", "എ", "ഏ", "ഒ",
+          "ക", "ഖ", "ഗ", "ച", "ജ", "ത", "ദ", "ധ", "ന",
+          "പ", "ഫ", "ബ", "ഭ", "മ", "യ", "ര", "ല", "വ",
+          "ശ", "ഷ", "സ", "ഹ",
+        ];
+        const MALAYALAM_CHILLU_TO_BASE = {
+          "ൺ": "ണ",
+          "ൻ": "ന",
+          "ർ": "ര",
+          "ൽ": "ല",
+          "ൾ": "ള",
+          "ൿ": "ക",
+        };
 
         const CATEGORIES = [
           { id: "name", en: "Name", ml: "പേര്", placeholderEn: "e.g. Karthik, Kalyani", placeholderMl: "ഉദാ: കാർത്തിക്, കല്യാണി" },
@@ -127,6 +141,38 @@
           X: { name: ["Xavier", "Xena", "Xander", "Xia", "Xavi"], place: ["Xiamen", "Xanadu", "Xalapa", "Xochimilco", "Xiangyang"], animal: ["Xerus", "X-Ray Tetra", "Xenops", "Xoloitzcuintli"], plant: ["Ximenia", "Xerophyte", "Xylosma", "Xanthosoma"], thing: ["Xylophone", "X-Ray Machine", "Xerox Machine", "Xbox"] },
           Y: { name: ["Yusuf", "Yamuna", "Yash", "Yasmin", "Yuvan", "Yadhu"], place: ["Yercaud", "Yokohama", "York", "Yemen", "Yellowstone"], animal: ["Yak", "Yellowhammer", "Yorkshire Terrier", "Yabby"], plant: ["Yucca", "Yam", "Yarrow", "Yellow Bell", "Ylang-Ylang"], thing: ["Yacht", "Yarn", "Yo-Yo", "Yardstick", "Yoga Mat"] },
           Z: { name: ["Zoya", "Zain", "Zakir", "Zara", "Zubin", "Zeenat"], place: ["Zurich", "Zanzibar", "Zagreb", "Zambia", "Zaragoza"], animal: ["Zebra", "Zebu", "Zorilla", "Zander", "Zebra Finch"], plant: ["Zinnia", "Zucchini", "Ziziphus", "Zephyr Lily"], thing: ["Zipper", "Zither", "Zeppelin", "Zinc", "Zoom Lens"] },
+        };
+
+        const MALAYALAM_WORD_DICTIONARY = {
+          "അ": { name: ["അർജുൻ", "അഞ്ജലി", "അരുൺ", "അമൽ"], place: ["അങ്കമാലി", "അമ്പലപ്പുഴ", "അതിരപ്പിള്ളി", "അമേരിക്ക"], animal: ["അണ്ണാൻ", "അരയന്നം", "അയല", "അട്ട"], plant: ["അത്തിപ്പഴം", "അമരക്ക", "അല്ലിപ്പൂ", "അശോകം"], thing: ["അലമാര", "അരിപ്പ", "അമ്പ്", "അളവുകോൽ"] },
+          "ആ": { name: ["ആനന്ദ്", "ആശ", "ആര്യ", "ആദിത്യൻ"], place: ["ആലപ്പുഴ", "ആലുവ", "ആറ്റിങ്ങൽ", "ആഗ്ര"], animal: ["ആന", "ആട്", "ആമ", "ആവോലി"], plant: ["ആപ്പിൾ", "ആമ്പൽ", "ആത്തച്ചക്ക", "ആര്യവേപ്പ്"], thing: ["ആണി", "ആനക്കൊമ്പ്", "ആയുധം", "ആഭരണം"] },
+          "ഇ": { name: ["ഇന്ദു", "ഇബ്രാഹിം", "ഇഷാൻ", "ഇന്ദിര"], place: ["ഇടുക്കി", "ഇരിങ്ങാലക്കുട", "ഇന്ത്യ", "ഇറ്റലി"], animal: ["ഇരണ്ട", "ഇലത്തവള", "ഇരുതലമൂരി", "ഇമ്പാല"], plant: ["ഇഞ്ചി", "ഇലന്തപ്പഴം", "ഇലുമ്പൻപുളി", "ഇലഞ്ഞി"], thing: ["ഇസ്തിരിപ്പെട്ടി", "ഇഷ്ടിക", "ഇരിപ്പിടം", "ഇടങ്ങഴി"] },
+          "ഉ": { name: ["ഉണ്ണി", "ഉഷ", "ഉമ", "ഉദയൻ"], place: ["ഉദയ്പൂർ", "ഉടുപ്പി", "ഉജ്ജയിൻ", "ഉഗാണ്ട"], animal: ["ഉറുമ്പ്", "ഉടുമ്പ്", "ഉപ്പൻ", "ഉണ്ണിക്കിളി"], plant: ["ഉരുളക്കിഴങ്ങ്", "ഉള്ളി", "ഉറുമാമ്പഴം", "ഉമ്മം"], thing: ["ഉരൽ", "ഉലക്ക", "ഉടുപ്പ്", "ഉരുളി"] },
+          "എ": { name: ["എൽസ", "എബിൻ", "എഡ്വിൻ", "എലിസബത്ത്"], place: ["എറണാകുളം", "എടപ്പാൾ", "എടപ്പള്ളി", "എരുമേലി"], animal: ["എലി", "എരുമ", "എട്ടുകാലി", "എരണ്ട"], plant: ["എള്ള്", "എരിക്ക്", "എലന്ത", "എണ്ണപ്പന"], thing: ["എഴുത്താണി", "എണ്ണക്കുപ്പി", "എഞ്ചിൻ", "എക്സ്-റേ"] },
+          "ഏ": { name: ["ഏലിയാസ്", "ഏബ്രഹാം", "ഏഞ്ചൽ", "ഏകലവ്യൻ"], place: ["ഏറ്റുമാനൂർ", "ഏഴിലോട്", "ഏലപ്പാറ", "ഏഷ്യ"], animal: ["ഏട്ട", "ഏരി", "ഏലക്കിളി"], plant: ["ഏലം", "ഏത്തപ്പഴം", "ഏഴിലംപാല"], thing: ["ഏണി", "ഏലസ്സ്", "ഏപ്രൺ", "ഏറോപ്ലെയിൻ"] },
+          "ഒ": { name: ["ഒമർ", "ഒലിവിയ", "ഒരുമ"], place: ["ഒറ്റപ്പാലം", "ഒറീസ്സ", "ഒമാൻ", "ഒട്ടാവ"], animal: ["ഒട്ടകം", "ഒച്ച്", "ഒട്ടകപ്പക്ഷി", "ഒറ്റക്കൊമ്പൻ"], plant: ["ഒലിവ്", "ഒണ്ടൻപഴം", "ഒതളം"], thing: ["ഒറ്റക്കമ്പി", "ഒരുക്കപ്പെട്ടി", "ഒറ്റവടി"] },
+          "ക": { name: ["കാർത്തിക്", "കല്യാണി", "കൃഷ്ണൻ", "കാവ്യ"], place: ["കൊച്ചി", "കണ്ണൂർ", "കോഴിക്കോട്", "കോട്ടയം"], animal: ["കടുവ", "കാക്ക", "കരിമീൻ", "കുരങ്ങൻ"], plant: ["കണിക്കൊന്ന", "കൈതച്ചക്ക", "കുമ്പളങ്ങ", "കറിവേപ്പ്"], thing: ["കസേര", "കണ്ണാടി", "കത്തി", "കുട"] },
+          "ഖ": { name: ["ഖദീജ", "ഖാലിദ്", "ഖാദർ", "ഖുറേഷി"], place: ["ഖത്തർ", "ഖജുരാഹോ", "ഖരഗ്പൂർ", "ഖാർത്തൂം"], animal: ["ഖഡ്ഗമൃഗം", "ഖഗം", "ഖരം"], plant: ["ഖർജൂരം", "ഖസഖസ്", "ഖദിരം"], thing: ["ഖഡ്ഗം", "ഖനനയന്ത്രം", "ഖാദിത്തുണി"] },
+          "ഗ": { name: ["ഗോകുൽ", "ഗീത", "ഗണേഷ്", "ഗോപിക"], place: ["ഗുരുവായൂർ", "ഗോവ", "ഗവി", "ഗുജറാത്ത്"], animal: ["ഗരുഡൻ", "ഗോറില്ല", "ഗിനിപ്പന്നി", "ഗൗളി"], plant: ["ഗന്ധരാജൻ", "ഗോതമ്പ്", "ഗുൽമോഹർ", "ഗോവയ്ക്ക"], thing: ["ഗിറ്റാർ", "ഗ്ലാസ്സ്", "ഗോപുരം", "ഗോളം"] },
+          "ച": { name: ["ചന്ദ്രൻ", "ചിത്ര", "ചാണ്ടി", "ചന്ദന"], place: ["ചാലക്കുടി", "ചെന്നൈ", "ചെങ്ങന്നൂർ", "ചൈന"], animal: ["ചീറ്റപ്പുലി", "ചെമ്മീൻ", "ചീവീട്", "ചെമ്പോത്ത്"], plant: ["ചെമ്പരത്തി", "ചക്ക", "ചീര", "ചെണ്ടുമല്ലി"], thing: ["ചൂൽ", "ചട്ടി", "ചക്രം", "ചെരുപ്പ്"] },
+          "ജ": { name: ["ജയൻ", "ജ്യോതി", "ജിതിൻ", "ജാനകി"], place: ["ജയ്പൂർ", "ജപ്പാൻ", "ജർമ്മനി", "ജറുസലേം"], animal: ["ജാഗ്വാർ", "ജലനായ്", "ജെല്ലിഫിഷ്", "ജിറാഫ്"], plant: ["ജാതിക്ക", "ജമന്തി", "ജാമ്പക്ക", "ജാസ്മിൻ"], thing: ["ജനൽ", "ജഗ്ഗ്", "ജാക്കറ്റ്", "ജീപ്പ്"] },
+          "ത": { name: ["തരുൺ", "തുളസി", "തോമസ്", "തൻവി"], place: ["തൃശ്ശൂർ", "തിരുവനന്തപുരം", "തലശ്ശേരി", "തിരൂർ"], animal: ["തത്ത", "തവള", "തിമിംഗലം", "തേൾ"], plant: ["താമര", "തക്കാളി", "തേങ്ങ", "തണ്ണിമത്തൻ"], thing: ["താക്കോൽ", "തൂവാല", "തബല", "തലയണ"] },
+          "ദ": { name: ["ദീപക്", "ദിവ്യ", "ദേവിക", "ദിനേശ്"], place: ["ദില്ലി", "ദുബായ്", "ദേവികുളം", "ദോഹ"], animal: ["ദിനോസർ", "ദീർഘകണ്ഠൻ", "ദശപദി"], plant: ["ദാഡിമം", "ദർഭപ്പുല്ല്", "ദശപുഷ്പം", "ദേവദാരു"], thing: ["ദർപ്പണം", "ദീപം", "ദണ്ഡ്", "ദൂരദർശിനി"] },
+          "ധ": { name: ["ധന്യ", "ധനുഷ്", "ധീരജ്", "ധർമ്മൻ"], place: ["ധർമ്മടം", "ധനുഷ്കോടി", "ധർമ്മശാല", "ധൻബാദ്"], animal: ["ധ്രുവക്കരടി", "ധവളഹംസം", "ധേനു"], plant: ["ധാന്യം", "ധാത്രി", "ധവളപുഷ്പം"], thing: ["ധനുസ്സ്", "ധൂപക്കുറ്റി", "ധനപ്പെട്ടി"] },
+          "ന": { name: ["നിഖിൽ", "നന്ദന", "നവീൻ", "നിർമ്മല"], place: ["നിലമ്പൂർ", "നെയ്യാറ്റിൻകര", "നാഗ്പൂർ", "നേപ്പാൾ"], animal: ["നായ", "നരി", "നെയ്മീൻ", "നത്തോലി"], plant: ["നാരങ്ങ", "നെല്ലിക്ക", "നന്ത്യാർവട്ടം", "നിലക്കടല"], thing: ["നൂൽ", "നിലവിളക്ക്", "നോട്ട്ബുക്ക്", "നങ്കൂരം"] },
+          "പ": { name: ["പ്രണവ്", "പ്രിയ", "പാർവ്വതി", "പ്രകാശ്"], place: ["പാലക്കാട്", "പത്തനംതിട്ട", "പൊന്നാനി", "പാരീസ്"], animal: ["പൂച്ച", "പശു", "പരുന്ത്", "പുലി"], plant: ["പപ്പായ", "പാവയ്ക്ക", "പയർ", "പിച്ചിപ്പൂ"], thing: ["പേന", "പാത്രം", "പായ", "പെട്ടി"] },
+          "ഫ": { name: ["ഫാത്തിമ", "ഫർഹാൻ", "ഫൈസൽ", "ഫ്രാൻസിസ്"], place: ["ഫറോക്ക്", "ഫ്രാൻസ്", "ഫിജി", "ഫ്ലോറൻസ്"], animal: ["ഫ്ലമിംഗോ", "ഫാൽക്കൺ", "ഫോക്സ്"], plant: ["ഫാഷൻ ഫ്രൂട്ട്", "ഫലം", "ഫിഗ്"], thing: ["ഫാൻ", "ഫോൺ", "ഫ്രിഡ്ജ്", "ഫ്രെയിം"] },
+          "ബ": { name: ["ബാലൻ", "ബിന്ദു", "ബാബു", "ബഷീർ"], place: ["ബേക്കൽ", "ബെംഗളൂരു", "ബേപ്പൂർ", "ബെർലിൻ"], animal: ["ബുൾബുൾ", "ബബൂൺ", "ബറ്റർഫ്ലൈ", "ബീവർ"], plant: ["ബീറ്റ്റൂട്ട്", "ബീൻസ്", "ബദാം", "ബ്ലൂബെറി"], thing: ["ബക്കറ്റ്", "ബാഗ്", "ബെൽറ്റ്", "ബൾബ്"] },
+          "ഭ": { name: ["ഭാവന", "ഭരത്", "ഭാഗ്യ", "ഭാസ്കരൻ"], place: ["ഭരണിക്കാവ്", "ഭോപ്പാൽ", "ഭൂട്ടാൻ", "ഭാരതം"], animal: ["ഭ്രമരം", "ഭല്ലൂകം", "ഭുജംഗം"], plant: ["ഭൃംഗരാജൻ", "ഭക്ഷ്യക്കൂൺ", "ഭൂതക്കൊടി"], thing: ["ഭരണി", "ഭൂപടം", "ഭാണ്ഡം", "ഭസ്മക്കൊട്ട"] },
+          "മ": { name: ["മീര", "മനോജ്", "മായ", "മോഹൻ"], place: ["മൂന്നാർ", "മലപ്പുറം", "മധുര", "മുംബൈ"], animal: ["മയിൽ", "മാൻ", "മത്തി", "മുയൽ"], plant: ["മാങ്ങ", "മുല്ലപ്പൂ", "മുരിങ്ങക്ക", "മുന്തിരി"], thing: ["മേശ", "മൊബൈൽ", "മുറം", "മണി"] },
+          "യ": { name: ["യൂസഫ്", "യമുന", "യദു", "യാസ്മിൻ"], place: ["യമൻ", "യേർക്കാട്", "യോർക്ക്", "യൂറോപ്പ്"], animal: ["യാക്ക്", "യവനപ്പക്ഷി", "യൂണികോൺ"], plant: ["യവം", "യൂക്കാലിപ്റ്റസ്", "യഷ്ടിമധു"], thing: ["യന്ത്രം", "യഷ്ടി", "യോഗാമാറ്റ്"] },
+          "ര": { name: ["രാഹുൽ", "രേഷ്മ", "രമേശ്", "രാധ"], place: ["രാമേശ്വരം", "രാജസ്ഥാൻ", "രായ്പൂർ", "രത്നഗിരി"], animal: ["രാജവെമ്പാല", "രജതമത്സ്യം", "രാക്കുയിൽ"], plant: ["രസകദളി", "രക്തചന്ദനം", "രജനീഗന്ധി", "രാമച്ചം"], thing: ["രഥം", "രസീത്", "രത്നം", "രേഖാചിത്രം"] },
+          "ല": { name: ["ലക്ഷ്മി", "ലാൽ", "ലിജോ", "ലീല"], place: ["ലണ്ടൻ", "ലക്നൗ", "ലക്ഷദ്വീപ്", "ലിസ്ബൺ"], animal: ["ലാമ", "ലോകസ്റ്റ്", "ലംഗൂർ", "ലവ്ബേർഡ്"], plant: ["ലില്ലി", "ലിച്ചി", "ലാവെൻഡർ", "ലൗലോലിക്ക"], thing: ["ലാപ്ടോപ്പ്", "ലാമ്പ്", "ലേസ്", "ലഹങ്ക"] },
+          "വ": { name: ["വിഷ്ണു", "വിദ്യ", "വിജയ്", "വർഷ"], place: ["വർക്കല", "വടകര", "വൈക്കം", "വയനാട്"], animal: ["വവ്വാൽ", "വരാൽ", "വണ്ട്", "വേഴാമ്പൽ"], plant: ["വെണ്ടയ്ക്ക", "വഴുതനങ്ങ", "വാഴപ്പഴം", "വെള്ളരിക്ക"], thing: ["വാച്ച്", "വിളക്ക്", "വയലിൻ", "വടി"] },
+          "ശ": { name: ["ശ്രേയ", "ശങ്കർ", "ശാരദ", "ശിവൻ"], place: ["ശബരിമല", "ശിവഗിരി", "ശ്രീനഗർ", "ശിംല"], animal: ["ശലഭം", "ശാർക്ക", "ശംഖുവരയൻ", "ശരപ്പക്ഷി"], plant: ["ശംഖുപുഷ്പം", "ശതാവരി", "ശീമച്ചക്ക", "ശീമക്കൊന്ന"], thing: ["ശംഖ്", "ശൂലം", "ശില്പം", "ശതരഞ്ജ്"] },
+          "ഷ": { name: ["ഷാജി", "ഷീല", "ഷെറിൻ", "ഷമീർ"], place: ["ഷൊർണൂർ", "ഷാർജ", "ഷിക്കാഗോ", "ഷില്ലോംഗ്"], animal: ["ഷാർക്ക്", "ഷട്പദം", "ഷീപ്പ്"], plant: ["ഷമാം", "ഷുഗർകെയ്ൻ", "ഷാംറോക്ക്"], thing: ["ഷർട്ട്", "ഷൂസ്", "ഷെൽഫ്", "ഷാമ്പൂ"] },
+          "സ": { name: ["സജ്ജാദ്", "സ്നേഹ", "സുരേഷ്", "സലീം"], place: ["സുൽത്താൻ ബത്തേരി", "സിംഗപ്പൂർ", "സിഡ്നി", "സിയോൾ"], animal: ["സിംഹം", "സ്രാവ്", "സീബ്ര", "സർപ്പം"], plant: ["സൂര്യകാന്തി", "സപ്പോട്ട", "സവാള", "സ്ട്രോബെറി"], thing: ["സോപ്പ്", "സൈക്കിൾ", "സോഫ", "സ്യൂട്ട്കേസ്"] },
+          "ഹ": { name: ["ഹരീഷ്", "ഹേമ", "ഹരി", "ഹസീന"], place: ["ഹരിപ്പാട്", "ഹൈദരാബാദ്", "ഹംപി", "ഹവാന"], animal: ["ഹംസം", "ഹിപ്പോപ്പൊട്ടാമസ്", "ഹൈറൻ", "ഹമ്മിംഗ്ബേർഡ്"], plant: ["ഹൈബിസ്കസ്", "ഹേസൽനട്ട്", "ഹോളി"], thing: ["ഹെൽമെറ്റ്", "ഹാമർ", "ഹാർമോണിയം", "ഹെഡ്ഫോൺ"] },
         };
 
         const MALAYALAM_INITIAL_MAP = {
@@ -198,20 +244,57 @@
           return { name: "", place: "", animal: "", plant: "", thing: "" };
         }
 
+        function isMalayalamLetter(letter) {
+          return /[\u0D00-\u0D7F]/.test(String(letter || ""));
+        }
+
+        function normalizeTargetLetter(letter) {
+          const s = String(letter || "").trim().normalize("NFC");
+          if (!s) return "K";
+          return isMalayalamLetter(s) ? s : s.toUpperCase();
+        }
+
+        function getActiveAlphabet(lang) {
+          const effectiveLang = lang || state.language;
+          return effectiveLang === "malayalam" ? MALAYALAM_ALPHABET : ALPHABET;
+        }
+
+        function getDefaultLetter(lang) {
+          const effectiveLang = lang || state.language;
+          return effectiveLang === "malayalam" ? "ക" : "K";
+        }
+
         function normalizeWord(raw) {
           return String(raw || "")
+            .normalize("NFC")
             .trim()
             .toLowerCase()
             .replace(/\s+/g, " ")
             .replace(/^[^a-z0-9\u0D00-\u0D7F]+|[^a-z0-9\u0D00-\u0D7F]+$/g, "");
         }
 
-        function startsWithTargetLetter(trimmed, upperTarget) {
-          const first = trimmed[0];
-          if (!first) return false;
-          if (first.toUpperCase() === upperTarget) return true;
-          const ml = MALAYALAM_INITIAL_MAP[first];
-          return Boolean(ml && ml.includes(upperTarget));
+        function getLeadingBaseChar(raw) {
+          const clean = String(raw || "")
+            .normalize("NFC")
+            .replace(/^[\s\u200B-\u200D\uFEFF"'`([{<.,!?:;\-–—]+/, "");
+          if (!clean) return "";
+          const first = Array.from(clean)[0] || "";
+          return MALAYALAM_CHILLU_TO_BASE[first] || first;
+        }
+
+        function startsWithTargetLetter(trimmed, targetLetter) {
+          const cleanTarget = normalizeTargetLetter(targetLetter);
+          const leading = getLeadingBaseChar(trimmed);
+          if (!leading) return false;
+
+          if (isMalayalamLetter(cleanTarget)) {
+            const targetBase = MALAYALAM_CHILLU_TO_BASE[cleanTarget] || cleanTarget;
+            return leading === targetBase;
+          }
+
+          if (leading.toUpperCase() === cleanTarget) return true;
+          const ml = MALAYALAM_INITIAL_MAP[leading];
+          return Boolean(ml && ml.includes(cleanTarget));
         }
 
         function looksLikeGibberish(norm) {
@@ -227,20 +310,22 @@
         function isInDictionary(word, letter, catId) {
           const norm = normalizeWord(word);
           if (!norm) return false;
-          const pool = (WORD_DICTIONARY[letter.toUpperCase()] || {})[catId] || [];
+          const key = normalizeTargetLetter(letter);
+          const dictEntry = isMalayalamLetter(key) ? MALAYALAM_WORD_DICTIONARY[key] : WORD_DICTIONARY[key];
+          const pool = (dictEntry || {})[catId] || [];
           return pool.some((item) => normalizeWord(item) === norm);
         }
 
         function validateWordForLetter(raw, targetLetter, catId) {
           const trimmed = String(raw || "").trim();
-          const upper = targetLetter.toUpperCase();
+          const target = normalizeTargetLetter(targetLetter);
           if (!trimmed) return { valid: false, reason: "blank", message: "No answer entered", inDictionary: false };
           const norm = normalizeWord(trimmed);
           if (norm.length < 2) return { valid: false, reason: "too_short", message: "Enter at least 2 letters", inDictionary: false };
-          if (!startsWithTargetLetter(trimmed, upper)) return { valid: false, reason: "wrong_letter", message: `Must start with "${upper}"`, inDictionary: false };
-          const inDict = catId ? isInDictionary(trimmed, upper, catId) : false;
+          if (!startsWithTargetLetter(trimmed, target)) return { valid: false, reason: "wrong_letter", message: `Must start with "${target}"`, inDictionary: false };
+          const inDict = catId ? isInDictionary(trimmed, target, catId) : false;
           if (!inDict && looksLikeGibberish(norm)) return { valid: false, reason: "gibberish", message: "Word looks invalid", inDictionary: false };
-          return { valid: true, reason: "ok", message: inDict ? `Verified "${upper}" word` : `Starts with "${upper}"`, inDictionary: inDict };
+          return { valid: true, reason: "ok", message: inDict ? `Verified "${target}" word` : `Starts with "${target}"`, inDictionary: inDict };
         }
 
         function getAppealKey(playerId, catId) {
@@ -298,7 +383,7 @@
         }
 
         function scoreRound(roundNumber, targetLetter, submissions, appeals = {}) {
-          const upper = targetLetter.toUpperCase();
+          const upper = normalizeTargetLetter(targetLetter);
           const wordCounts = { name: new Map(), place: new Map(), animal: new Map(), plant: new Map(), thing: new Map() };
 
           const pre = submissions.map(({ player, answers }) => {
@@ -371,7 +456,8 @@
         }
 
         function pickBotAnswers(targetLetter, difficulty) {
-          const dict = WORD_DICTIONARY[targetLetter.toUpperCase()];
+          const key = normalizeTargetLetter(targetLetter);
+          const dict = isMalayalamLetter(key) ? MALAYALAM_WORD_DICTIONARY[key] : WORD_DICTIONARY[key];
           const ans = createEmptyAnswers();
           if (!dict) return ans;
           const blankChance = difficulty === "casual" ? 0.14 : 0.03;
@@ -383,10 +469,11 @@
           return ans;
         }
 
-        function pickNextLetter(usedLetters) {
-          const used = new Set((usedLetters || []).map((l) => l.toUpperCase()));
-          const avail = ALPHABET.filter((l) => !used.has(l));
-          const pool = avail.length ? avail : ALPHABET;
+        function pickNextLetter(usedLetters, lang) {
+          const alphabet = getActiveAlphabet(lang);
+          const used = new Set((usedLetters || []).map((l) => normalizeTargetLetter(l)));
+          const avail = alphabet.filter((l) => !used.has(l));
+          const pool = avail.length ? avail : alphabet;
           return pool[Math.floor(Math.random() * pool.length)];
         }
 
@@ -590,7 +677,9 @@
           if (typeof saved.totalRounds === "number" && saved.totalRounds > 0) state.totalRounds = saved.totalRounds;
           if (typeof saved.timerSeconds === "number" && saved.timerSeconds > 0) state.timerSeconds = saved.timerSeconds;
           if (["random", "manual"].includes(saved.letterMode)) state.letterMode = saved.letterMode;
-          if (typeof saved.manualLetter === "string" && saved.manualLetter.length === 1) state.manualLetter = saved.manualLetter.toUpperCase();
+          if (typeof saved.manualLetter === "string" && saved.manualLetter.trim().length > 0) {
+            state.manualLetter = normalizeTargetLetter(saved.manualLetter);
+          }
           if (typeof saved.soloName === "string") state.soloName = saved.soloName;
           if (typeof saved.botCount === "number" && saved.botCount >= 1 && saved.botCount <= 3) state.botCount = saved.botCount;
           if (["casual", "sharp"].includes(saved.botDifficulty)) state.botDifficulty = saved.botDifficulty;
@@ -645,7 +734,9 @@
 
           state.activePlayers = saved.activePlayers;
           state.currentRound = Number(saved.currentRound) || 1;
-          state.targetLetter = typeof saved.targetLetter === "string" && saved.targetLetter ? saved.targetLetter.toUpperCase() : "K";
+          state.targetLetter = typeof saved.targetLetter === "string" && saved.targetLetter.trim()
+            ? normalizeTargetLetter(saved.targetLetter)
+            : getDefaultLetter(state.language);
           state.usedLetters = Array.isArray(saved.usedLetters) ? saved.usedLetters : [state.targetLetter];
           state.turnIndex = Number.isInteger(saved.turnIndex) && saved.turnIndex >= 0 && saved.turnIndex < Math.max(1, humans.length)
             ? saved.turnIndex
@@ -918,17 +1009,22 @@
 
           try {
             const roomRef = db.collection("rooms").doc(code);
+            const activePool = getActiveAlphabet(state.language);
+            const initialManualLetter = activePool.includes(state.manualLetter)
+              ? state.manualLetter
+              : getDefaultLetter(state.language);
             const payload = {
               roomCode: code,
               hostId: myClientId,
               phase: "lobby",
+              language: state.language,
               totalRounds: state.totalRounds,
               timerSeconds: state.timerSeconds,
               letterMode: state.letterMode,
-              manualLetter: state.manualLetter,
+              manualLetter: initialManualLetter,
               usedLetters: [],
               currentRound: 0,
-              targetLetter: state.manualLetter,
+              targetLetter: initialManualLetter,
               roundEndsAt: 0,
               playersMap: {
                 [myClientId]: { id: myClientId, name, joinedAt: Date.now() },
@@ -1000,9 +1096,14 @@
         async function startOnlineRound() {
           if (!db || !state.room || state.room.hostId !== myClientId) return;
           const r = state.room;
+          const roomLang = r.language || (isMalayalamLetter(r.targetLetter) ? "malayalam" : state.language);
+          const activePool = getActiveAlphabet(roomLang);
+          const manualCandidate = activePool.includes(state.manualLetter)
+            ? state.manualLetter
+            : (activePool.includes(r.targetLetter) ? r.targetLetter : getDefaultLetter(roomLang));
           const letter = r.letterMode === "manual"
-            ? (state.manualLetter || r.targetLetter || "K").toUpperCase()
-            : pickNextLetter(r.usedLetters || []);
+            ? normalizeTargetLetter(manualCandidate)
+            : pickNextLetter(r.usedLetters || [], roomLang);
           const nextRound = (r.currentRound || 0) + 1;
           const used = (r.usedLetters || []).includes(letter) ? r.usedLetters : [...(r.usedLetters || []), letter];
           const roundEndsAt = Date.now() + (r.timerSeconds || 60) * 1000;
@@ -1205,7 +1306,13 @@
         }
 
         function beginLocalRound(roundNum) {
-          const letter = state.letterMode === "manual" ? state.manualLetter.toUpperCase() : pickNextLetter(state.usedLetters);
+          const activePool = getActiveAlphabet(state.language);
+          const manualCandidate = activePool.includes(state.manualLetter)
+            ? state.manualLetter
+            : getDefaultLetter(state.language);
+          const letter = state.letterMode === "manual"
+            ? normalizeTargetLetter(manualCandidate)
+            : pickNextLetter(state.usedLetters, state.language);
           state.currentRound = roundNum;
           state.targetLetter = letter;
           if (!state.usedLetters.includes(letter)) state.usedLetters.push(letter);
@@ -1437,18 +1544,18 @@
                     </div>
 
                     <div class="space-y-3 border-t border-slate-100 pt-4">
-                      <span class="block text-xs font-semibold text-slate-600">Starting Letter</span>
+                      <span class="block text-xs font-semibold text-slate-600">${state.language === "malayalam" ? "തുടക്ക അക്ഷരം · Starting Letter" : "Starting Letter"}</span>
                       <div class="grid grid-cols-2 gap-1.5 rounded-lg bg-slate-100 p-1">
                         <button type="button" data-action="set-letter-mode" data-lmode="random"
-                          class="rounded-md px-3 py-2 text-xs font-semibold ${state.letterMode === "random" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">Random Spin</button>
+                          class="rounded-md px-2.5 py-2 text-xs font-semibold leading-tight ${state.letterMode === "random" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">Random Spin</button>
                         <button type="button" data-action="set-letter-mode" data-lmode="manual"
-                          class="rounded-md px-3 py-2 text-xs font-semibold ${state.letterMode === "manual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">Pick A–Z</button>
+                          class="rounded-md px-2.5 py-2 text-xs font-semibold leading-tight ${state.letterMode === "manual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">${state.language === "malayalam" ? "അക്ഷരം തിരഞ്ഞെടുക്കുക / Pick Letter" : "Pick A–Z"}</button>
                       </div>
                       ${state.letterMode === "manual" ? `
                         <div class="grid grid-cols-7 gap-1 pt-1">
-                          ${ALPHABET.map((l) => `
+                          ${getActiveAlphabet(state.language).map((l) => `
                             <button type="button" data-action="set-manual-letter" data-letter="${l}"
-                              class="h-8 rounded-md font-display text-xs font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${l}</button>`).join("")}
+                              class="h-8 rounded-md font-display ${state.language === "malayalam" ? "text-sm" : "text-xs"} font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${l}</button>`).join("")}
                         </div>` : ""}
                     </div>
 
@@ -1477,7 +1584,7 @@
                   <div>
                     <p class="text-xs font-semibold text-emerald-700">Online Multiplayer · Firebase Firestore</p>
                     <h1 class="mt-1 font-display text-2xl font-extrabold text-slate-900">Room ${escapeHtml(r.roomCode)}</h1>
-                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">${r.totalRounds} rounds · ${r.timerSeconds}s per round · ${r.letterMode === "manual" ? `Starting: ${escapeHtml(r.manualLetter || r.targetLetter || "K")}` : "Random letter"}</p>
+                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">${r.totalRounds} rounds · ${r.timerSeconds}s per round · ${r.letterMode === "manual" ? `Starting: ${escapeHtml(r.manualLetter || r.targetLetter || getDefaultLetter(r.language))}` : (r.language === "malayalam" ? "Random Malayalam letter" : "Random letter")}</p>
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <button type="button" data-action="copy-room-code"
@@ -1921,15 +2028,22 @@
                 </section>
 
                 <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-5 space-y-4">
-                  ${!isFinal && canModerate && letterMode === "manual" ? `
+                  ${!isFinal && canModerate && letterMode === "manual" ? (() => {
+                    const roomLang = isOnline
+                      ? (state.room.language || (isMalayalamLetter(state.room.targetLetter) ? "malayalam" : state.language))
+                      : state.language;
+                    const nextAlphabet = getActiveAlphabet(roomLang);
+                    const selectedNext = nextAlphabet.includes(state.manualLetter) ? state.manualLetter : getDefaultLetter(roomLang);
+                    return `
                     <div>
-                      <span class="block text-xs font-semibold text-slate-600">Pick Next Round Letter</span>
+                      <span class="block text-xs font-semibold text-slate-600">${roomLang === "malayalam" ? "അടുത്ത അക്ഷരം തിരഞ്ഞെടുക്കുക · Pick Next Letter" : "Pick Next Round Letter"}</span>
                       <div class="mt-2 grid grid-cols-7 gap-1">
-                        ${ALPHABET.map((l) => `
+                        ${nextAlphabet.map((l) => `
                           <button type="button" data-action="set-manual-letter" data-letter="${l}"
-                            class="h-7 rounded font-display text-xs font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${l}</button>`).join("")}
+                            class="h-7 rounded font-display ${roomLang === "malayalam" ? "text-sm" : "text-xs"} font-bold ${selectedNext === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${l}</button>`).join("")}
                       </div>
-                    </div>` : ""}
+                    </div>`;
+                  })() : ""}
 
                   ${canModerate
                     ? isFinal
@@ -2282,7 +2396,14 @@
           const act = btn.dataset.action;
 
           if (act === "set-mode") { state.mode = btn.dataset.mode; state.onlineError = firebaseInitError; render(); }
-          else if (act === "set-lang") { state.language = btn.dataset.lang; render(); }
+          else if (act === "set-lang") {
+            state.language = btn.dataset.lang;
+            const activePool = getActiveAlphabet(state.language);
+            if (!activePool.includes(state.manualLetter)) {
+              state.manualLetter = getDefaultLetter(state.language);
+            }
+            render();
+          }
           else if (act === "set-bot-count") { state.botCount = Number(btn.dataset.count); render(); }
           else if (act === "set-bot-skill") { state.botDifficulty = btn.dataset.skill; render(); }
           else if (act === "set-rounds") { state.totalRounds = Number(btn.dataset.rounds); render(); }
