@@ -1,5 +1,28 @@
+import { useEffect, useRef } from 'react';
 import { Medal, RotateCcw, Trophy, Home } from 'lucide-react';
 import type { RoundResult, StandingEntry } from '../game/types';
+
+interface ConfettiParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  gravity: number;
+  drag: number;
+  w: number;
+  h: number;
+  shape: 'rect' | 'circle' | 'ribbon';
+  color: string;
+  rotation: number;
+  rotationSpeed: number;
+  tilt: number;
+  tiltSpeed: number;
+  wobblePhase: number;
+  wobbleSpeed: number;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
 
 interface PodiumScreenProps {
   standings: StandingEntry[];
@@ -16,10 +39,154 @@ export function PodiumScreen({
   onBackToMenu,
   canControl = true,
 }: PodiumScreenProps) {
+  const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const winners = standings.filter((s) => s.rank === 1);
   const winner = winners[0];
   const isTie = winners.length > 1;
   const topThree = standings.slice(0, 3);
+  const winnerKey = winners.map((w) => `${w.playerId}:${w.totalScore}`).join('|');
+
+  useEffect(() => {
+    if (!winnerKey) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return;
+    }
+
+    const canvas = confettiCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const colors = ['#047857', '#10b981', '#f59e0b', '#fbbf24', '#f43f5e', '#0ea5e9', '#6366f1'];
+    const shapes: ConfettiParticle['shape'][] = ['rect', 'circle', 'ribbon'];
+    const particles: ConfettiParticle[] = [];
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    let rafId: number | null = null;
+    let secondWaveTimer: number | null = null;
+
+    const resizeCanvas = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    const spawnBurst = (
+      originX: number,
+      originY: number,
+      count: number,
+      spreadMin: number,
+      spreadMax: number,
+      speedMin: number,
+      speedMax: number,
+    ) => {
+      for (let i = 0; i < count; i++) {
+        const angle = spreadMin + Math.random() * (spreadMax - spreadMin);
+        const speed = speedMin + Math.random() * (speedMax - speedMin);
+        const shape = shapes[Math.floor(Math.random() * shapes.length)];
+        particles.push({
+          x: originX + (Math.random() - 0.5) * 28,
+          y: originY + (Math.random() - 0.5) * 18,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          gravity: 0.22 + Math.random() * 0.14,
+          drag: 0.985 + Math.random() * 0.008,
+          w: shape === 'ribbon' ? 4 + Math.random() * 3 : 6 + Math.random() * 5,
+          h: shape === 'ribbon' ? 13 + Math.random() * 6 : 6 + Math.random() * 5,
+          shape,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          rotation: Math.random() * Math.PI * 2,
+          rotationSpeed: (Math.random() - 0.5) * 0.22,
+          tilt: Math.random() * Math.PI * 2,
+          tiltSpeed: 0.08 + Math.random() * 0.14,
+          wobblePhase: Math.random() * Math.PI * 2,
+          wobbleSpeed: 0.05 + Math.random() * 0.08,
+          alpha: 1,
+          life: 0,
+          maxLife: 190 + Math.random() * 110,
+        });
+      }
+    };
+
+    spawnBurst(width * 0.12, height * 0.72, 48, -Math.PI * 0.44, -Math.PI * 0.14, 10, 19);
+    spawnBurst(width * 0.88, height * 0.72, 48, -Math.PI * 0.86, -Math.PI * 0.56, 10, 19);
+    spawnBurst(width * 0.5, -10, 44, Math.PI * 0.2, Math.PI * 0.8, 2, 7);
+
+    secondWaveTimer = window.setTimeout(() => {
+      secondWaveTimer = null;
+      spawnBurst(width * 0.28, height * 0.2, 30, -Math.PI * 0.8, -Math.PI * 0.2, 5, 11);
+      spawnBurst(width * 0.72, height * 0.2, 30, -Math.PI * 0.8, -Math.PI * 0.2, 5, 11);
+    }, 620);
+
+    let lastTime = performance.now();
+
+    const tick = (now: number) => {
+      const dt = Math.min((now - lastTime) / 16.667, 2.2);
+      lastTime = now;
+
+      ctx.clearRect(0, 0, width, height);
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life += dt;
+        p.vx *= Math.pow(p.drag, dt);
+        p.vy = p.vy * Math.pow(p.drag, dt) + p.gravity * dt;
+        p.wobblePhase += p.wobbleSpeed * dt;
+        p.x += (p.vx + Math.sin(p.wobblePhase) * 0.75) * dt;
+        p.y += p.vy * dt;
+        p.rotation += p.rotationSpeed * dt;
+        p.tilt += p.tiltSpeed * dt;
+
+        const fadeStart = p.maxLife * 0.72;
+        if (p.life > fadeStart) {
+          p.alpha = Math.max(0, 1 - (p.life - fadeStart) / (p.maxLife - fadeStart));
+        }
+
+        if (p.life >= p.maxLife || p.y > height + 40) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.scale(1, Math.max(0.18, Math.abs(Math.cos(p.tilt))));
+        ctx.fillStyle = p.color;
+
+        if (p.shape === 'circle') {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.w * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        }
+        ctx.restore();
+      }
+
+      if (particles.length > 0 || secondWaveTimer !== null) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        rafId = null;
+      }
+    };
+
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (secondWaveTimer !== null) window.clearTimeout(secondWaveTimer);
+      window.removeEventListener('resize', resizeCanvas);
+      ctx.clearRect(0, 0, width, height);
+    };
+  }, [winnerKey]);
 
   const headline = isTie
     ? `Tie for 1st: ${winners.map((w) => w.playerName).join(' & ')}`
@@ -34,7 +201,13 @@ export function PodiumScreen({
       : topThree;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12 space-y-8">
+    <>
+      <canvas
+        ref={confettiCanvasRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-40 h-full w-full"
+      />
+      <main className="relative z-10 mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12 space-y-8">
       {/* Winner Celebration Header */}
       <section className="animate-pop-in rounded-xl border border-slate-200 bg-white p-7 text-center shadow-xs">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-600">
@@ -175,6 +348,7 @@ export function PodiumScreen({
           <span>Main Menu</span>
         </button>
       </div>
-    </main>
+      </main>
+    </>
   );
 }
