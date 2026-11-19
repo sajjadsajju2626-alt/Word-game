@@ -529,7 +529,7 @@
                 cells[cat.id] = {
                   raw: item.raw, normalized: item.norm, points: 5,
                   status: "shared",
-                  reason: `Marked duplicate by Admin${byLabel} (+5)`,
+                  reason: `Same / matching word — Admin${byLabel} (+5)`,
                   appealDecision: "duplicate",
                   rulingBy: item.ruling.by,
                 };
@@ -2035,8 +2035,8 @@
                     <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal &amp; Review Answers</h1>
                     <p class="mt-0.5 text-sm text-slate-600">
                       ${isAdmin
-                        ? `Room Admin (${escapeHtml(adminName)}): Review answers for "${escapeHtml(result.letter)}" and mark words as Valid (10), Duplicate (5), or Invalid (0).`
-                        : `Inspect answers for "${escapeHtml(result.letter)}". Only Room Admin (${escapeHtml(adminName)}) can change rulings — use Review Chat to explain or appeal.`}
+                        ? `Room Admin (${escapeHtml(adminName)}): Review answers for "${escapeHtml(result.letter)}" — use 5 pts (Match) for spelling or Malayalam/Manglish variations instead of 0 pts (Disapprove).`
+                        : `Inspect answers for "${escapeHtml(result.letter)}". Only Room Admin (${escapeHtml(adminName)}) can change rulings — use Review Chat to explain or request a 5-pt match.`}
                     </p>
                   </div>
                 </div>
@@ -2051,7 +2051,7 @@
                 <section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                   <div class="text-xs text-slate-600">
                     <span class="font-bold text-slate-800">Acting as:</span>
-                    Only <span class="font-semibold text-emerald-800">${escapeHtml(adminName)} (Admin)</span> can apply Valid / Duplicate / Invalid rulings. Any player can send messages in Review Chat.
+                    Only <span class="font-semibold text-emerald-800">${escapeHtml(adminName)} (Admin)</span> can apply 10 pts (Valid), 5 pts (Match), or 0 pts (Disapprove) rulings. Use <span class="font-semibold text-amber-700">5 pts (Match)</span> for minor spelling or Malayalam/Manglish duplicates.
                   </div>
                   <div class="flex flex-wrap gap-1.5 rounded-lg bg-slate-100 p-1">
                     ${passAndPlayHumans.map((p) => `
@@ -2066,8 +2066,8 @@
                 }">
                   <p class="font-medium">
                     ${isAdmin
-                      ? `<span class="font-bold">Room Admin Control Active:</span> You can mark any submitted word as Valid (10 pts), Duplicate (5 pts), or Invalid (0 pts) based on player appeals.`
-                      : `<span class="font-bold">Read-Only Review:</span> Only Room Admin (${escapeHtml(adminName)}) can toggle word rulings. Use the Review Chat box to appeal your word or flag a duplicate/invalid entry.`}
+                      ? `<span class="font-bold">Room Admin Controls:</span> Use <span class="font-semibold text-amber-800">5 pts (Match)</span> to reduce matching words (minor spelling, transliteration, or Malayalam/Manglish variations) from 10 to 5 pts without disapproving to 0.`
+                      : `<span class="font-bold">Read-Only Review:</span> Only Room Admin (${escapeHtml(adminName)}) can change scores. Use Review Chat to explain your word or ask Admin to mark a 5-pt match.`}
                   </p>
                 </section>`}
 
@@ -2124,27 +2124,40 @@
                                       </div>
                                       ${hasWord ? (
                                         isAdmin ? `
-                                          <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                            <div class="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Admin ruling for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
-                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
-                                                aria-pressed="${activeRuling === "valid"}"
-                                                class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${activeRuling === "valid" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:text-emerald-800"}">
-                                                Valid 10
-                                              </button>
-                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
-                                                aria-pressed="${activeRuling === "duplicate"}"
-                                                class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${activeRuling === "duplicate" ? "bg-amber-600 text-white shadow-sm" : "text-slate-600 hover:text-amber-700"}">
-                                                Dup 5
-                                              </button>
-                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
-                                                aria-pressed="${activeRuling === "invalid"}"
-                                                class="rounded px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${activeRuling === "invalid" ? "bg-red-600 text-white shadow-sm" : "text-slate-600 hover:text-red-700"}">
-                                                Invalid 0
-                                              </button>
-                                            </div>
+                                          <div class="flex flex-wrap items-center gap-1 pt-0.5" role="group" aria-label="Admin scoring for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
+                                              aria-pressed="${activeRuling === "valid"}"
+                                              title="Mark as unique valid word (10 pts)"
+                                              class="rounded-md border px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                                                activeRuling === "valid"
+                                                  ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                                                  : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                                              }">
+                                              10 pts (Valid)
+                                            </button>
+                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
+                                              aria-pressed="${activeRuling === "duplicate"}"
+                                              title="Same / matching word (spelling or Malayalam/Manglish variation) — reduces to 5 pts instead of 0"
+                                              class="rounded-md border px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                                                activeRuling === "duplicate"
+                                                  ? "border-amber-600 bg-amber-600 text-white shadow-sm"
+                                                  : "border-amber-200 bg-amber-50/70 text-amber-800 hover:border-amber-400 hover:bg-amber-100"
+                                              }">
+                                              5 pts (Match)
+                                            </button>
+                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
+                                              aria-pressed="${activeRuling === "invalid"}"
+                                              title="Disapprove invalid or wrong-letter word (0 pts)"
+                                              class="rounded-md border px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                                                activeRuling === "invalid"
+                                                  ? "border-red-600 bg-red-600 text-white shadow-sm"
+                                                  : "border-slate-200 bg-slate-50 text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                                              }">
+                                              0 pts (Disapprove)
+                                            </button>
                                             ${activeRuling !== "auto" ? `
                                               <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
-                                                class="text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
+                                                class="px-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
                                                 Reset
                                               </button>` : ""}
                                           </div>` : `
@@ -2163,8 +2176,8 @@
 
                   <section class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                     <div class="text-xs text-slate-600 space-y-0.5">
-                      <p class="font-semibold text-slate-800">Admin-Moderated Review · No Answer Editing</p>
-                      <p>10 pts unique valid word · 5 pts same/duplicate word · 0 pts blank, invalid, or disapproved by Admin</p>
+                      <p class="font-semibold text-slate-800">Admin-Moderated Scoring · No Answer Editing</p>
+                      <p>10 pts (Valid) unique word · 5 pts (Match) same word / spelling or Manglish variation · 0 pts (Disapprove) invalid or wrong letter</p>
                     </div>
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
                       <button type="button" data-action="reset-game" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap">New Game / Reset</button>
@@ -2285,23 +2298,53 @@
                           ${result.playerScores.map((ps) => {
                             const c = ps.cells[cat.id];
                             const hasWord = c.raw.trim().length > 0;
-                            const isValidNow = c.points > 0;
+                            const activeRuling = c.appealDecision || "auto";
                             const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
                             return `
                               <td class="px-4 py-3.5 align-top">
-                                <div class="flex items-start justify-between gap-2">
-                                  <div class="min-w-0">
-                                    <p class="font-semibold break-words ${c.points === 0 ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
-                                    <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
+                                <div class="space-y-2">
+                                  <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                      <p class="font-semibold break-words ${c.points === 0 ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
+                                      <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
+                                    </div>
+                                    <span class="font-mono-tabular text-xs font-bold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
                                   </div>
-                                  <div class="flex flex-col items-end gap-1 shrink-0">
-                                    <span class="font-mono-tabular text-xs font-bold ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
-                                    ${canModerate && hasWord ? `
-                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="${isValidNow ? "invalid" : "valid"}"
-                                        class="text-[11px] font-semibold underline ${isValidNow ? "text-slate-500 hover:text-slate-800" : "text-emerald-700"}">
-                                        ${isValidNow ? "Invalid 0" : "Valid 10"}
-                                      </button>` : ""}
-                                  </div>
+                                  ${canModerate && hasWord ? `
+                                    <div class="flex flex-wrap items-center gap-1" role="group" aria-label="Admin quick score for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
+                                        aria-pressed="${activeRuling === "valid"}"
+                                        class="rounded border px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
+                                          activeRuling === "valid"
+                                            ? "border-emerald-700 bg-emerald-700 text-white"
+                                            : "border-slate-200 bg-slate-50 text-slate-600 hover:border-emerald-300 hover:text-emerald-800"
+                                        }">
+                                        10 pts (Valid)
+                                      </button>
+                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
+                                        aria-pressed="${activeRuling === "duplicate"}"
+                                        class="rounded border px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
+                                          activeRuling === "duplicate"
+                                            ? "border-amber-600 bg-amber-600 text-white"
+                                            : "border-amber-200 bg-amber-50/70 text-amber-800 hover:border-amber-400 hover:bg-amber-100"
+                                        }">
+                                        5 pts (Match)
+                                      </button>
+                                      <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
+                                        aria-pressed="${activeRuling === "invalid"}"
+                                        class="rounded border px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
+                                          activeRuling === "invalid"
+                                            ? "border-red-600 bg-red-600 text-white"
+                                            : "border-slate-200 bg-slate-50 text-slate-600 hover:border-red-300 hover:text-red-700"
+                                        }">
+                                        0 pts (Disapprove)
+                                      </button>
+                                      ${activeRuling !== "auto" ? `
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
+                                          class="px-1 text-[10px] font-medium text-slate-500 hover:text-slate-800 underline">
+                                          Reset
+                                        </button>` : ""}
+                                    </div>` : ""}
                                 </div>
                               </td>`;
                           }).join("")}
@@ -2533,7 +2576,7 @@
                                 const statusLabel = isRejected
                                   ? "Disapproved · +0"
                                   : isDuplicate
-                                    ? "Duplicate · +5"
+                                    ? "Match / Same · +5"
                                     : isApproved
                                       ? `Approved · +${ch.points}`
                                       : `Ruled · +${ch.points}`;
