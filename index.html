@@ -52,10 +52,40 @@
         background-image: linear-gradient(to bottom, transparent 31px, rgba(148, 163, 184, 0.14) 32px);
         background-size: 100% 32px;
       }
+      @keyframes lobbyEmojiFloat {
+        0% {
+          opacity: 0;
+          transform: translate3d(0, 0, 0) scale(0.55) rotate(0deg);
+        }
+        14% {
+          opacity: 1;
+          transform: translate3d(calc(var(--drift, 0px) * 0.25), -10vh, 0) scale(1.18) rotate(calc(var(--rot, 0deg) * 0.4));
+        }
+        75% {
+          opacity: 0.95;
+          transform: translate3d(calc(var(--drift, 0px) * 0.85), -58vh, 0) scale(1.02) rotate(var(--rot, 0deg));
+        }
+        100% {
+          opacity: 0;
+          transform: translate3d(var(--drift, 0px), -80vh, 0) scale(0.88) rotate(calc(var(--rot, 0deg) * 1.2));
+        }
+      }
+      .lobby-float-emoji {
+        position: absolute;
+        bottom: 18px;
+        will-change: transform, opacity;
+        animation: lobbyEmojiFloat var(--dur, 2.5s) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .lobby-float-emoji {
+          animation-duration: 0.9s;
+        }
+      }
     </style>
   </head>
   <body class="ledger-canvas min-h-screen text-slate-900 antialiased selection:bg-emerald-100 selection:text-emerald-900">
     <div id="app"></div>
+    <div id="lobby-reaction-stage" aria-hidden="true" class="pointer-events-none fixed inset-0 z-50 overflow-hidden"></div>
 
     <script>
       (() => {
@@ -269,6 +299,7 @@
             playStart: () => { tone(523.25, 0.12, "triangle", 0.08, 0); tone(659.25, 0.12, "triangle", 0.08, 0.09); tone(783.99, 0.18, "triangle", 0.09, 0.18); },
             playUrgentTick: () => tone(1046.5, 0.09, "square", 0.04),
             playSubmit: () => { tone(587.33, 0.1, "sine", 0.07, 0); tone(880, 0.18, "sine", 0.08, 0.08); },
+            playPop: () => { tone(740, 0.07, "sine", 0.05, 0); tone(987.77, 0.08, "sine", 0.04, 0.045); },
             playTimeUp: () => { tone(440, 0.18, "sawtooth", 0.06, 0); tone(349.23, 0.32, "sawtooth", 0.06, 0.16); },
             playVictory: () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.22, "triangle", 0.08, i * 0.11)),
           };
@@ -667,11 +698,137 @@
           reviewingPlayerId: "",
           reviewMessages: [],
           reviewChatDraft: "",
+          // Waiting Lobby entertainment state
+          lobbyChatDraft: "",
+          lobbyRiddleIndex: 0,
+          lobbyRiddleShowAnswer: false,
           // Firebase Firestore Online Room state
           room: null,
           submittedOnline: false,
           onlineTimeLeft: 60,
         };
+
+        const LOBBY_AVATARS = ["🦁", "🐯", "🐘", "🦊", "🐼", "🦉", "🦚", "🐬", "🚀", "👑", "⚡", "🌟", "🎯", "🧠"];
+        const LOBBY_REACTIONS = ["🔥", "😂", "🚀", "👏", "😎"];
+        const LOBBY_QUICK_CHATS = [
+          "Ready! 🚀",
+          "Hurry up! ⏳",
+          "I'm winning this round! 🏆",
+          "Good luck! ✨",
+        ];
+        const LOBBY_RIDDLES = [
+          {
+            tag: "കടങ്കഥ · Malayalam Riddle",
+            question: "പച്ചക്കോട്ടയ്ക്കുള്ളിൽ ചുവന്ന പട്ടാളക്കാർ, അതിനുള്ളിൽ കറുത്ത കാവൽക്കാർ — എന്താണ്?",
+            subtitle: "Inside a green fort are red soldiers, and inside them black guards — what is it?",
+            answer: "തണ്ണിമത്തൻ (Watermelon) 🍉",
+          },
+          {
+            tag: "കടങ്കഥ · Malayalam Riddle",
+            question: "വെള്ളം കുടിച്ചാൽ ചാകും, കാറ്റ് വീശിയാൽ വളരും — ഞാൻ ആര്?",
+            subtitle: "Drinks water and dies, grows stronger when the wind blows — what am I?",
+            answer: "തീ (Fire) 🔥",
+          },
+          {
+            tag: "Wordplay · മലയാളം",
+            question: "മുന്നിൽ നിന്ന് വായിച്ചാലും പിന്നിൽ നിന്ന് വായിച്ചാലും ഒരുപോലെയുള്ള ഭാഷ ഏത്?",
+            subtitle: "Which language reads the exact same forward and backward?",
+            answer: "മലയാളം (MALAYALAM)!",
+          },
+          {
+            tag: "English Word Riddle",
+            question: "What starts with 'T', ends with 'T', and has 'T' in it?",
+            subtitle: "Great warm-up before the timer starts!",
+            answer: "A Teapot 🫖",
+          },
+          {
+            tag: "കടങ്കഥ · Malayalam Riddle",
+            question: "ആന കേറാമല, ആടു കേറാമല, ആയിരം കാന്താരി പൂത്തിറങ്ങി — എന്താണ്?",
+            subtitle: "A hill neither elephant nor goat can climb, blooming with a thousand tiny chillies — what is it?",
+            answer: "ആകാശവും നക്ഷത്രങ്ങളും (Night sky & stars) ✨",
+          },
+          {
+            tag: "കടങ്കഥ · Malayalam Riddle",
+            question: "ഒറ്റക്കാലൻ കാടിനുള്ളിൽ കുട പിടിച്ചു നിൽക്കുന്നു — ആര്?",
+            subtitle: "Standing on one leg in the forest holding an umbrella — who is it?",
+            answer: "കൂൺ (Mushroom) 🍄",
+          },
+          {
+            tag: "Pro Tip · Scoring Strategy",
+            question: "Want 10 points instead of 5 in സ്ഥലം (Place)?",
+            subtitle: "Everyone thinks of Kochi or Kozhikode first!",
+            answer: "Try rarer valid places like Varkala, Bekal, Ponmudi, or Kovalam to dodge 5-pt duplicates.",
+          },
+          {
+            tag: "English Word Riddle",
+            question: "Which 5-letter English word becomes shorter when you add two letters to it?",
+            subtitle: "Think literally!",
+            answer: "Short (Short + er = Shorter)!",
+          },
+          {
+            tag: "കടങ്കഥ · Malayalam Riddle",
+            question: "മുറിക്കുമ്പോൾ കരയിപ്പിക്കുന്ന പച്ചക്കറി ഏത്?",
+            subtitle: "Which kitchen vegetable makes you cry when you slice it?",
+            answer: "ഉള്ളി / സവാള (Onion) 🧅",
+          },
+          {
+            tag: "Kerala Trivia · Place",
+            question: "Which Kerala district is nicknamed the 'Venice of the East'?",
+            subtitle: "Handy answer for 'A' or 'അ'!",
+            answer: "Alappuzha (ആലപ്പുഴ) 🛶",
+          },
+          {
+            tag: "English Riddle",
+            question: "What has cities, mountains, and rivers, but no houses, trees, or water?",
+            subtitle: "Perfect for സാധനം (Thing)!",
+            answer: "A Map 🗺️",
+          },
+          {
+            tag: "Pro Tip · Review Phase",
+            question: "Spotted two players with different spellings of the same word?",
+            subtitle: "E.g., 'Kochi' vs 'കൊച്ചി' or 'Karthik' vs 'Karthick'",
+            answer: "Mention it in Review Chat — the Room Admin can set both to 5 pts (Match) without disapproving!",
+          },
+        ];
+
+        const seenLobbyReactionIds = new Set();
+
+        function getPlayerAvatar(player, fallbackIdx = 0) {
+          if (player && typeof player.avatar === "string" && player.avatar.trim()) {
+            return player.avatar.trim();
+          }
+          const idx = Math.abs(fallbackIdx) % LOBBY_AVATARS.length;
+          return LOBBY_AVATARS[idx];
+        }
+
+        function spawnFloatingReaction(emoji, senderName = "") {
+          const stage = document.getElementById("lobby-reaction-stage");
+          if (!stage) return;
+          const baseLeft = 14 + Math.random() * 72;
+          const burstCount = 3;
+          for (let i = 0; i < burstCount; i++) {
+            const node = document.createElement("div");
+            node.className = "lobby-float-emoji flex flex-col items-center select-none";
+            const leftPct = Math.max(6, Math.min(92, baseLeft + (i === 0 ? 0 : (Math.random() - 0.5) * 16)));
+            const driftPx = Math.round((Math.random() - 0.5) * 76);
+            const rotDeg = Math.round((Math.random() - 0.5) * 32);
+            const durSec = (2.15 + Math.random() * 0.75).toFixed(2);
+            const delayMs = i * 90;
+            node.style.left = `${leftPct}%`;
+            node.style.setProperty("--drift", `${driftPx}px`);
+            node.style.setProperty("--rot", `${rotDeg}deg`);
+            node.style.setProperty("--dur", `${durSec}s`);
+            node.style.animationDelay = `${delayMs}ms`;
+
+            const sizeCls = i === 0 ? "text-4xl sm:text-5xl" : "text-2xl sm:text-3xl opacity-90";
+            node.innerHTML = `
+              <span class="${sizeCls} drop-shadow-sm leading-none">${escapeHtml(emoji)}</span>
+              ${i === 0 && senderName ? `<span class="mt-1 rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm whitespace-nowrap">${escapeHtml(senderName)}</span>` : ""}
+            `;
+            stage.appendChild(node);
+            setTimeout(() => node.remove(), Number(durSec) * 1000 + delayMs + 250);
+          }
+        }
 
         function getCurrentReviewerId() {
           if (state.mode === "online" && state.room) return myClientId;
@@ -1137,6 +1294,20 @@
                 stopTimer();
               }
 
+              if (incoming.phase === "lobby" && incoming.recentReactions && typeof incoming.recentReactions === "object") {
+                const nowMs = Date.now();
+                for (const entry of Object.values(incoming.recentReactions)) {
+                  if (!entry || !entry.id || seenLobbyReactionIds.has(entry.id)) continue;
+                  seenLobbyReactionIds.add(entry.id);
+                  const age = nowMs - (entry.createdAt || 0);
+                  if (prevPhase === "lobby" && age < 15000) {
+                    spawnFloatingReaction(entry.emoji || "🔥", entry.senderName || "");
+                  } else if (prevPhase !== "lobby" && age < 4000) {
+                    spawnFloatingReaction(entry.emoji || "🔥", entry.senderName || "");
+                  }
+                }
+              }
+
               if (incoming.phase === "appeal" && prevPhase === "playing") {
                 state.reviewChatDraft = "";
                 soundFx.playTimeUp();
@@ -1189,12 +1360,20 @@
               targetLetter: initialManualLetter,
               roundEndsAt: 0,
               playersMap: {
-                [myClientId]: { id: myClientId, name, joinedAt: Date.now() },
+                [myClientId]: {
+                  id: myClientId,
+                  name,
+                  avatar: LOBBY_AVATARS[0],
+                  ready: false,
+                  joinedAt: Date.now(),
+                },
               },
               submissions: {},
               submittedMap: {},
               appeals: {},
               reviewMessages: [],
+              lobbyMessages: [],
+              recentReactions: {},
               roundHistory: {},
               createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             };
@@ -1202,6 +1381,8 @@
             state.onlineBusy = false;
             state.room = payload;
             state.phase = "lobby";
+            state.lobbyChatDraft = "";
+            state.lobbyRiddleShowAnswer = false;
             subscribeToRoom(code);
             render();
           } catch (err) {
@@ -1240,19 +1421,136 @@
             }
             const data = snap.data();
             const existingPlayer = data.playersMap && data.playersMap[myClientId];
+            const existingCount = Object.keys(data.playersMap || {}).length;
+            const assignedAvatar =
+              existingPlayer && existingPlayer.avatar
+                ? existingPlayer.avatar
+                : LOBBY_AVATARS[existingCount % LOBBY_AVATARS.length];
             await roomRef.update({
               [`playersMap.${myClientId}`]: {
                 id: myClientId,
                 name,
+                avatar: assignedAvatar,
+                ready: existingPlayer ? Boolean(existingPlayer.ready) : false,
                 joinedAt: existingPlayer ? existingPlayer.joinedAt : Date.now(),
               },
             });
             state.onlineBusy = false;
+            state.lobbyChatDraft = "";
+            state.lobbyRiddleShowAnswer = false;
             subscribeToRoom(code);
           } catch (err) {
             state.onlineBusy = false;
             state.onlineError = formatFirebaseError(err, "Could not join room.");
             render();
+          }
+        }
+
+        async function sendLobbyReaction(emoji) {
+          const cleanEmoji = String(emoji || "").trim() || "🔥";
+          const r = state.room;
+          const myPlayer = r && r.playersMap && r.playersMap[myClientId];
+          const senderName = (myPlayer && myPlayer.name) || state.onlineName || "Player";
+          const reactionId = "rx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+
+          seenLobbyReactionIds.add(reactionId);
+          spawnFloatingReaction(cleanEmoji, senderName);
+          soundFx.playPop();
+
+          if (db && r && r.roomCode) {
+            try {
+              await db.collection("rooms").doc(r.roomCode).update({
+                [`recentReactions.${myClientId}`]: {
+                  id: reactionId,
+                  emoji: cleanEmoji,
+                  senderId: myClientId,
+                  senderName,
+                  createdAt: Date.now(),
+                },
+              });
+            } catch {
+              // Local animation already played; ignore transient sync errors
+            }
+          }
+        }
+
+        async function sendLobbyMessage(rawText) {
+          const text = String(rawText || "").trim().slice(0, 180);
+          if (!text || !state.room) return;
+
+          const r = state.room;
+          const players = getOrderedRoomPlayers(r);
+          const myIdx = players.findIndex((p) => p.id === myClientId);
+          const myPlayer = r.playersMap && r.playersMap[myClientId];
+          const msg = {
+            id: "lmsg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+            senderId: myClientId,
+            senderName: (myPlayer && myPlayer.name) || state.onlineName || "Player",
+            avatar: getPlayerAvatar(myPlayer, myIdx >= 0 ? myIdx : 0),
+            isHost: r.hostId === myClientId,
+            text,
+            createdAt: Date.now(),
+          };
+
+          state.lobbyChatDraft = "";
+          if (!Array.isArray(r.lobbyMessages)) r.lobbyMessages = [];
+          r.lobbyMessages = [...r.lobbyMessages, msg];
+          render();
+
+          if (db && r.roomCode) {
+            try {
+              await db.collection("rooms").doc(r.roomCode).update({
+                lobbyMessages: window.firebase.firestore.FieldValue.arrayUnion(msg),
+              });
+            } catch (err) {
+              state.onlineError = formatFirebaseError(err, "Failed to send lobby message.");
+              render();
+            }
+          }
+        }
+
+        async function cycleMyLobbyAvatar() {
+          const r = state.room;
+          if (!r || !r.playersMap || !r.playersMap[myClientId]) return;
+          const players = getOrderedRoomPlayers(r);
+          const myIdx = Math.max(0, players.findIndex((p) => p.id === myClientId));
+          const current = getPlayerAvatar(r.playersMap[myClientId], myIdx);
+          const currPos = LOBBY_AVATARS.indexOf(current);
+          const nextAvatar = LOBBY_AVATARS[(currPos + 1 + LOBBY_AVATARS.length) % LOBBY_AVATARS.length];
+
+          r.playersMap[myClientId] = { ...r.playersMap[myClientId], avatar: nextAvatar };
+          render();
+
+          if (db && r.roomCode) {
+            try {
+              await db.collection("rooms").doc(r.roomCode).update({
+                [`playersMap.${myClientId}.avatar`]: nextAvatar,
+              });
+            } catch (err) {
+              state.onlineError = formatFirebaseError(err, "Failed to update avatar.");
+              render();
+            }
+          }
+        }
+
+        async function toggleMyLobbyReady() {
+          const r = state.room;
+          if (!r || !r.playersMap || !r.playersMap[myClientId]) return;
+          const nextReady = !Boolean(r.playersMap[myClientId].ready);
+
+          r.playersMap[myClientId] = { ...r.playersMap[myClientId], ready: nextReady };
+          if (nextReady) soundFx.playSubmit();
+          render();
+
+          if (db && r.roomCode) {
+            try {
+              await db.collection("rooms").doc(r.roomCode).update({
+                [`playersMap.${myClientId}.ready`]: nextReady,
+              });
+            } catch (err) {
+              state.onlineError = formatFirebaseError(err, "Failed to update ready status.");
+              render();
+            }
           }
         }
 
@@ -1798,45 +2096,243 @@
           const r = state.room;
           const players = getOrderedRoomPlayers(r);
           const isHost = r.hostId === myClientId;
+          const readyCount = players.filter((p) => Boolean(p.ready)).length;
+          const allReady = players.length > 0 && readyCount === players.length;
+
+          const lobbyMsgs = (Array.isArray(r.lobbyMessages) ? r.lobbyMessages : [])
+            .slice()
+            .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+            .slice(-40);
+
+          const riddleIdx = ((state.lobbyRiddleIndex % LOBBY_RIDDLES.length) + LOBBY_RIDDLES.length) % LOBBY_RIDDLES.length;
+          const riddle = LOBBY_RIDDLES[riddleIdx];
+
           return `
-            <main class="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
-              <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 space-y-6">
-                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-5">
+            <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10 space-y-6">
+              <!-- Room Header -->
+              <section class="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <p class="text-xs font-semibold text-emerald-700">Online Multiplayer · Firebase Firestore</p>
-                    <h1 class="mt-1 font-display text-2xl font-extrabold text-slate-900">Room ${escapeHtml(r.roomCode)}</h1>
-                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">${r.totalRounds} rounds · ${r.timerSeconds}s per round · ${r.letterMode === "manual" ? `Starting: ${escapeHtml(r.manualLetter || r.targetLetter || getDefaultLetter(r.language))}` : (r.language === "malayalam" ? "Random Malayalam letter" : "Random letter")}</p>
+                    <p class="text-xs font-semibold text-emerald-700">Online Multiplayer Lobby · Firebase Firestore</p>
+                    <h1 class="mt-1 font-display text-2xl sm:text-3xl font-extrabold text-slate-900">Room ${escapeHtml(r.roomCode)}</h1>
+                    <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">
+                      ${r.totalRounds} rounds · ${r.timerSeconds}s per round · ${r.letterMode === "manual" ? `Starting: ${escapeHtml(r.manualLetter || r.targetLetter || getDefaultLetter(r.language))}` : (r.language === "malayalam" ? "Random Malayalam letter" : "Random letter")}
+                    </p>
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <button type="button" data-action="copy-room-code"
-                      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
                       Copy Code
                     </button>
                     <button type="button" data-action="copy-invite-link"
-                      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
                       Copy Invite Link
                     </button>
                   </div>
                 </div>
-                ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
-                <div>
-                  <h2 class="text-sm font-bold text-slate-800">Connected Players (${players.length})</h2>
-                  <ul class="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                    ${players.map((p) => `
-                      <li class="flex items-center justify-between px-4 py-2.5 text-sm">
-                        <span class="font-semibold text-slate-900">${escapeHtml(p.name)}${p.id === myClientId ? " (You)" : ""}</span>
-                        <span class="text-xs font-medium ${p.id === r.hostId ? "text-emerald-700 font-semibold" : "text-slate-500"}">${p.id === r.hostId ? "Host" : "Player"}</span>
-                      </li>`).join("")}
-                  </ul>
-                  <p class="mt-2 text-xs text-slate-500">Share code <span class="font-mono-tabular font-bold text-slate-800">${escapeHtml(r.roomCode)}</span> with friends on any device to join this lobby.</p>
-                </div>
-                <div class="flex flex-col gap-3 sm:flex-row">
-                  ${isHost
-                    ? `<button type="button" data-action="start-online-round" class="flex-1 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Start Round 1</button>`
-                    : `<div class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-slate-600">Waiting for host to start Round 1...</div>`}
-                  <button type="button" data-action="leave-online-room" class="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Leave Room</button>
-                </div>
+                ${state.onlineError ? `<p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
               </section>
+
+              <div class="grid gap-6 lg:grid-cols-12 items-start">
+                <!-- Left Column: Interactive Players + Warm-Up Riddle -->
+                <div class="lg:col-span-7 space-y-6 min-w-0">
+                  <!-- Interactive Player Lobby Cards -->
+                  <section id="lobby-players-card" class="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h2 class="font-display text-base font-extrabold text-slate-900">Connected Players (${players.length})</h2>
+                        <p class="text-xs text-slate-500">Tap your avatar to customize it and toggle Ready when you're set.</p>
+                      </div>
+                      <span class="rounded-md border px-2.5 py-1 font-mono-tabular text-xs font-bold ${
+                        allReady
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-slate-200 bg-slate-50 text-slate-600"
+                      }">
+                        ${readyCount}/${players.length} Ready
+                      </span>
+                    </div>
+
+                    <ul class="space-y-2.5">
+                      ${players.map((p, idx) => {
+                        const isMe = p.id === myClientId;
+                        const isRoomHost = p.id === r.hostId;
+                        const isReady = Boolean(p.ready);
+                        const avatar = getPlayerAvatar(p, idx);
+                        return `
+                          <li class="flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3 transition-colors ${
+                            isReady
+                              ? "border-emerald-200 bg-emerald-50/40"
+                              : isMe
+                                ? "border-slate-300 bg-slate-50/70"
+                                : "border-slate-200 bg-white"
+                          }">
+                            <div class="flex items-center gap-3 min-w-0">
+                              ${isMe ? `
+                                <button type="button" data-action="cycle-avatar"
+                                  title="Tap to change your avatar emoji"
+                                  aria-label="Change avatar emoji (currently ${escapeHtml(avatar)})"
+                                  class="group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-white text-2xl shadow-xs hover:border-emerald-400 hover:scale-105 active:scale-95 transition-transform">
+                                  <span>${escapeHtml(avatar)}</span>
+                                  <span class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-slate-800 px-1 text-[9px] font-bold text-white leading-tight">Edit</span>
+                                </button>` : `
+                                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-2xl" aria-hidden="true">
+                                  ${escapeHtml(avatar)}
+                                </div>`}
+                              <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                  <span class="truncate font-semibold text-sm text-slate-900">${escapeHtml(p.name)}</span>
+                                  ${isMe ? `<span class="text-[11px] font-semibold text-slate-500">(You)</span>` : ""}
+                                  ${isRoomHost ? `<span class="rounded bg-emerald-700 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">Host</span>` : ""}
+                                </div>
+                                <p class="mt-0.5 text-[11px] text-slate-500">
+                                  ${isMe ? "Tap avatar to switch emoji" : (isReady ? "Ready to play" : "Getting ready...")}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div class="shrink-0">
+                              ${isMe ? `
+                                <button type="button" data-action="toggle-ready" aria-pressed="${isReady}"
+                                  class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${
+                                    isReady
+                                      ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
+                                      : "border-slate-300 bg-white text-slate-700 hover:border-emerald-400 hover:text-emerald-800"
+                                  }">
+                                  ${isReady ? "✓ Ready" : "Mark Ready"}
+                                </button>` : `
+                                <span class="inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-bold ${
+                                  isReady
+                                    ? "border-emerald-200 bg-emerald-100/80 text-emerald-800"
+                                    : "border-slate-200 bg-slate-100 text-slate-500"
+                                }">
+                                  ${isReady ? "✓ Ready" : "Waiting"}
+                                </span>`}
+                            </div>
+                          </li>`;
+                      }).join("")}
+                    </ul>
+
+                    <p class="text-xs text-slate-500">
+                      Share code <span class="font-mono-tabular font-bold text-slate-800">${escapeHtml(r.roomCode)}</span> with friends on any device to join this lobby.
+                    </p>
+
+                    <div class="flex flex-col gap-3 pt-1 sm:flex-row">
+                      ${isHost
+                        ? `<button type="button" data-action="start-online-round" class="flex-1 rounded-lg bg-emerald-700 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 transition-colors">
+                            Start Round 1${players.length > 1 ? ` (${readyCount}/${players.length} Ready)` : ""}
+                          </button>`
+                        : `<div class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-slate-600">Waiting for host to start Round 1...</div>`}
+                      <button type="button" data-action="leave-online-room" class="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">Leave Room</button>
+                    </div>
+                  </section>
+
+                  <!-- Warm-Up Riddles & Fun Tips Card -->
+                  <section id="lobby-riddle-card" aria-label="Warm-Up Riddle" class="rounded-xl border border-amber-200/80 bg-gradient-to-br from-amber-50/70 via-white to-emerald-50/40 p-5 sm:p-6 shadow-sm space-y-3.5">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-xs font-bold text-amber-800">${escapeHtml(riddle.tag)}</span>
+                      <span class="font-mono-tabular text-[11px] font-semibold text-slate-500">Warm-Up ${riddleIdx + 1}/${LOBBY_RIDDLES.length}</span>
+                    </div>
+
+                    <div>
+                      <p class="font-display text-base sm:text-lg font-extrabold text-slate-900 leading-snug">
+                        ${escapeHtml(riddle.question)}
+                      </p>
+                      ${riddle.subtitle ? `<p class="mt-1 text-xs text-slate-600">${escapeHtml(riddle.subtitle)}</p>` : ""}
+                    </div>
+
+                    ${state.lobbyRiddleShowAnswer ? `
+                      <div id="lobby-riddle-answer" class="rounded-lg border border-emerald-200 bg-emerald-50/90 px-3.5 py-2.5 text-sm font-bold text-emerald-900">
+                        Answer: ${escapeHtml(riddle.answer)}
+                      </div>` : ""}
+
+                    <div class="flex flex-wrap items-center gap-2 pt-0.5">
+                      <button type="button" data-action="toggle-riddle-answer"
+                        class="rounded-lg border border-amber-300 bg-white px-3.5 py-2 text-xs font-bold text-amber-900 hover:bg-amber-50 transition-colors">
+                        ${state.lobbyRiddleShowAnswer ? "Hide Answer" : "Show Answer"}
+                      </button>
+                      <button type="button" data-action="next-riddle"
+                        class="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+                        Next →
+                      </button>
+                    </div>
+                  </section>
+                </div>
+
+                <!-- Right Column: Floating Reactions + Compact Lobby Chat -->
+                <div class="lg:col-span-5 lg:sticky lg:top-6 space-y-5 min-w-0">
+                  <!-- Floating Emoji Reactions Bar -->
+                  <section id="lobby-reactions-bar" aria-label="Floating Emoji Reactions" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-2.5">
+                    <div class="flex items-center justify-between gap-2">
+                      <h2 class="font-display text-sm font-extrabold text-slate-900">Send Live Reaction</h2>
+                      <span class="text-[11px] font-medium text-slate-500">Floats for everyone</span>
+                    </div>
+                    <div class="grid grid-cols-5 gap-2">
+                      ${LOBBY_REACTIONS.map((emoji) => `
+                        <button type="button" data-action="send-lobby-reaction" data-emoji="${escapeHtml(emoji)}"
+                          aria-label="Send ${escapeHtml(emoji)} reaction"
+                          class="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 text-2xl hover:border-emerald-300 hover:bg-emerald-50/70 hover:scale-105 active:scale-95 transition-transform">
+                          ${escapeHtml(emoji)}
+                        </button>`).join("")}
+                    </div>
+                  </section>
+
+                  <!-- Compact Lobby Chat -->
+                  <aside id="lobby-chat-panel" aria-label="Lobby Chat" class="rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col overflow-hidden">
+                    <div class="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                      <div class="flex items-center justify-between gap-2">
+                        <h2 class="font-display text-sm font-extrabold text-slate-900">Lobby Chat</h2>
+                        <span class="font-mono-tabular text-[11px] font-semibold text-slate-500">${lobbyMsgs.length} ${lobbyMsgs.length === 1 ? "msg" : "msgs"}</span>
+                      </div>
+                    </div>
+
+                    <div id="lobby-chat-list" class="p-3.5 space-y-2.5 min-h-[160px] max-h-[260px] overflow-y-auto bg-white">
+                      ${lobbyMsgs.length === 0 ? `
+                        <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3 py-6 text-center">
+                          <p class="text-xs font-semibold text-slate-600">Say hi while waiting!</p>
+                          <p class="mt-1 text-[11px] text-slate-500">Tap a quick-chat pill below or type a message.</p>
+                        </div>` : lobbyMsgs.map((msg) => {
+                          const isMine = msg.senderId === myClientId;
+                          return `
+                            <div class="flex flex-col ${isMine ? "items-end" : "items-start"}">
+                              <div class="max-w-[90%] rounded-lg border px-3 py-2 text-xs ${
+                                isMine
+                                  ? "border-emerald-200 bg-emerald-50/80 text-slate-900"
+                                  : "border-slate-200 bg-slate-50 text-slate-900"
+                              }">
+                                <div class="flex items-center gap-1.5 text-[11px]">
+                                  <span aria-hidden="true">${escapeHtml(msg.avatar || "🦁")}</span>
+                                  <span class="font-bold ${isMine ? "text-emerald-900" : "text-slate-800"}">${escapeHtml(msg.senderName || "Player")}</span>
+                                  ${msg.isHost ? `<span class="rounded bg-emerald-700 px-1 py-0.5 text-[9px] font-bold text-white leading-none">Host</span>` : ""}
+                                  ${msg.createdAt ? `<span class="text-slate-400 font-mono-tabular">${escapeHtml(formatChatTime(msg.createdAt))}</span>` : ""}
+                                </div>
+                                <p class="mt-1 break-words text-slate-800 leading-relaxed">${escapeHtml(msg.text || "")}</p>
+                              </div>
+                            </div>`;
+                        }).join("")}
+                    </div>
+
+                    <!-- One-Tap Quick-Chat Pills -->
+                    <div class="border-t border-slate-100 bg-slate-50/40 px-3.5 py-2 flex flex-wrap gap-1.5">
+                      ${LOBBY_QUICK_CHATS.map((pill) => `
+                        <button type="button" data-action="send-lobby-quick" data-text="${escapeHtml(pill)}"
+                          class="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 transition-colors">
+                          ${escapeHtml(pill)}
+                        </button>`).join("")}
+                    </div>
+
+                    <form id="lobby-chat-form" class="border-t border-slate-200 bg-slate-50/70 p-3 flex items-center gap-2">
+                      <input id="lobby-chat-input" type="text" maxlength="180" autocomplete="off"
+                        value="${escapeHtml(state.lobbyChatDraft || "")}"
+                        placeholder="Type a message..."
+                        class="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20" />
+                      <button type="submit"
+                        class="shrink-0 rounded-lg bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-800 transition-colors">
+                        Send
+                      </button>
+                    </form>
+                  </aside>
+                </div>
+              </div>
             </main>`;
         }
 
@@ -2827,9 +3323,12 @@
 
         function render() {
           const activeEl = document.activeElement;
-          const preserveChatFocus = Boolean(activeEl && activeEl.id === "review-chat-input");
-          const chatSelStart = preserveChatFocus ? activeEl.selectionStart : null;
-          const chatSelEnd = preserveChatFocus ? activeEl.selectionEnd : null;
+          const preservedInputId =
+            activeEl && (activeEl.id === "review-chat-input" || activeEl.id === "lobby-chat-input")
+              ? activeEl.id
+              : "";
+          const chatSelStart = preservedInputId ? activeEl.selectionStart : null;
+          const chatSelEnd = preservedInputId ? activeEl.selectionEnd : null;
 
           document.body.dataset.state = state.paused && state.phase === "playing" ? "paused" : state.phase;
           const root = document.getElementById("app");
@@ -2841,11 +3340,12 @@
           else if (state.phase === "results") root.innerHTML = renderResults();
           else if (state.phase === "gameover") root.innerHTML = renderPodium();
 
-          if (state.phase === "appeal") {
-            const chatList = document.getElementById("review-chat-list");
+          if (state.phase === "appeal" || state.phase === "lobby") {
+            const listId = state.phase === "lobby" ? "lobby-chat-list" : "review-chat-list";
+            const chatList = document.getElementById(listId);
             if (chatList) chatList.scrollTop = chatList.scrollHeight;
-            if (preserveChatFocus) {
-              const chatInput = document.getElementById("review-chat-input");
+            if (preservedInputId) {
+              const chatInput = document.getElementById(preservedInputId);
               if (chatInput) {
                 chatInput.focus();
                 if (typeof chatSelStart === "number" && typeof chatSelEnd === "number") {
@@ -2889,6 +3389,10 @@
             state.reviewChatDraft = t.value;
             const counter = t.closest("form")?.querySelector(".font-mono-tabular");
             if (counter) counter.textContent = `${t.value.length}/240`;
+            return;
+          }
+          if (t.id === "lobby-chat-input") {
+            state.lobbyChatDraft = t.value;
             return;
           }
           if (t.classList.contains("local-player-input")) {
@@ -2971,6 +3475,12 @@
             } else {
               sendLocalReviewMessage(text);
             }
+          } else if (e.target.id === "lobby-chat-form") {
+            e.preventDefault();
+            const input = document.getElementById("lobby-chat-input");
+            const text = input ? input.value : state.lobbyChatDraft;
+            if (!String(text || "").trim()) return;
+            sendLobbyMessage(text);
           }
         });
 
@@ -3017,6 +3527,19 @@
           }
           else if (act === "start-online-round") { startOnlineRound(); }
           else if (act === "leave-online-room") { leaveOnlineRoom(); }
+          else if (act === "send-lobby-reaction") { sendLobbyReaction(btn.dataset.emoji); }
+          else if (act === "send-lobby-quick") { sendLobbyMessage(btn.dataset.text); }
+          else if (act === "cycle-avatar") { cycleMyLobbyAvatar(); }
+          else if (act === "toggle-ready") { toggleMyLobbyReady(); }
+          else if (act === "toggle-riddle-answer") {
+            state.lobbyRiddleShowAnswer = !state.lobbyRiddleShowAnswer;
+            render();
+          }
+          else if (act === "next-riddle") {
+            state.lobbyRiddleIndex = (state.lobbyRiddleIndex + 1) % LOBBY_RIDDLES.length;
+            state.lobbyRiddleShowAnswer = false;
+            render();
+          }
           else if (act === "reveal-handoff") {
             state.phase = "playing";
             soundFx.playStart();
@@ -3090,7 +3613,7 @@
           else if (act === "play-again") {
             if (state.mode === "online" && state.room && db) {
               try {
-                await db.collection("rooms").doc(state.room.roomCode).update({
+                const resetPayload = {
                   phase: "lobby",
                   currentRound: 0,
                   usedLetters: [],
@@ -3099,7 +3622,12 @@
                   submittedMap: {},
                   appeals: {},
                   reviewMessages: [],
+                  recentReactions: {},
+                };
+                Object.keys(state.room.playersMap || {}).forEach((pid) => {
+                  resetPayload[`playersMap.${pid}.ready`] = false;
                 });
+                await db.collection("rooms").doc(state.room.roomCode).update(resetPayload);
               } catch (err) {
                 state.onlineError = formatFirebaseError(err, "Failed to reset room.");
                 render();
