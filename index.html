@@ -93,11 +93,37 @@
       .ready-pop {
         animation: readyCountPop 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
       }
+      @keyframes podiumTrophyBob {
+        0%, 100% {
+          transform: translateY(0px);
+        }
+        50% {
+          transform: translateY(-5px);
+        }
+      }
+      .podium-trophy-bob {
+        animation: podiumTrophyBob 2.4s ease-in-out infinite;
+      }
+      @keyframes podiumRise {
+        0% {
+          opacity: 0;
+          transform: translateY(18px) scale(0.96);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      .podium-rise {
+        animation: podiumRise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
       @media (prefers-reduced-motion: reduce) {
         .lobby-float-emoji {
           animation-duration: 0.9s;
         }
-        .ready-pop {
+        .ready-pop,
+        .podium-trophy-bob,
+        .podium-rise {
           animation: none;
         }
       }
@@ -752,6 +778,7 @@
           shareImageDataUrl: "",
           shareImageStatus: "",
           shareImageBusy: false,
+          confettiMode: "normal", // normal | fast
           backConfirmOpen: false,
           readyCountdownEndsAt: 0,
           // Waiting Lobby entertainment state
@@ -3209,7 +3236,32 @@
           const isOnline = state.mode === "online" && state.room;
           const players = isOnline ? getOrderedRoomPlayers(state.room) : state.activePlayers;
           const resultsList = isOnline ? getOnlineAllRoundResults(state.room) : state.roundResults;
-          const standings = calculateStandings(players, resultsList);
+
+          const avatarByPlayerId = {};
+          const playerBgByPlayerId = {};
+          const AVATAR_PALETTES = [
+            { bg: "bg-amber-100", ring: "ring-amber-300", hex: "#FEF3C7" },
+            { bg: "bg-emerald-100", ring: "ring-emerald-300", hex: "#D1FAE5" },
+            { bg: "bg-sky-100", ring: "ring-sky-300", hex: "#E0F2FE" },
+            { bg: "bg-rose-100", ring: "ring-rose-300", hex: "#FFE4E6" },
+            { bg: "bg-violet-100", ring: "ring-violet-300", hex: "#EDE9FE" },
+            { bg: "bg-orange-100", ring: "ring-orange-300", hex: "#FFEDD5" },
+          ];
+          players.forEach((p, idx) => {
+            avatarByPlayerId[p.id] = getPlayerAvatar(p, idx);
+            playerBgByPlayerId[p.id] = AVATAR_PALETTES[idx % AVATAR_PALETTES.length];
+          });
+
+          const resolveAvatar = (playerId, fallbackIdx = 0) =>
+            avatarByPlayerId[playerId] || LOBBY_AVATARS[Math.abs(fallbackIdx) % LOBBY_AVATARS.length];
+          const resolvePalette = (playerId, fallbackIdx = 0) =>
+            playerBgByPlayerId[playerId] || AVATAR_PALETTES[Math.abs(fallbackIdx) % AVATAR_PALETTES.length];
+
+          const standings = calculateStandings(players, resultsList).map((s, idx) => ({
+            ...s,
+            avatar: resolveAvatar(s.playerId, idx),
+            avatarPalette: resolvePalette(s.playerId, idx),
+          }));
           const winners = standings.filter((s) => s.rank === 1);
           const winner = winners[0];
           const headline = winners.length > 1
@@ -3217,11 +3269,22 @@
             : winner ? `${winner.playerName} Wins!` : "Final Standings";
 
           const top3 = standings.slice(0, 3);
-          const slots = top3.length === 3 ? [top3[1], top3[0], top3[2]] : top3;
+          const slots = top3.length === 3
+            ? [
+                { ...top3[1], tier: 2 },
+                { ...top3[0], tier: 1 },
+                { ...top3[2], tier: 3 },
+              ]
+            : top3.length === 2
+              ? [
+                  { ...top3[1], tier: 2 },
+                  { ...top3[0], tier: 1 },
+                ]
+              : top3.map((entry, idx) => ({ ...entry, tier: idx + 1 }));
 
           const roundHistoryEntries = resultsList.map((r) => {
             const sortedPlayers = [...r.playerScores]
-              .map((ps) => {
+              .map((ps, idx) => {
                 let uniqueCount = 0;
                 let sharedCount = 0;
                 let validCount = 0;
@@ -3231,12 +3294,19 @@
                   if (cell.status === "unique") { uniqueCount += 1; validCount += 1; }
                   else if (cell.status === "shared") { sharedCount += 1; validCount += 1; }
                 });
-                return { ...ps, uniqueCount, sharedCount, validCount };
+                return {
+                  ...ps,
+                  avatar: resolveAvatar(ps.playerId, idx),
+                  avatarPalette: resolvePalette(ps.playerId, idx),
+                  uniqueCount,
+                  sharedCount,
+                  validCount,
+                };
               })
               .sort((a, b) => b.roundTotal - a.roundTotal || b.uniqueCount - a.uniqueCount || a.playerName.localeCompare(b.playerName));
 
             const challenged = [];
-            r.playerScores.forEach((ps) => {
+            r.playerScores.forEach((ps, idx) => {
               CATEGORIES.forEach((cat) => {
                 const cell = ps.cells[cat.id];
                 if (!cell || !cell.raw || !cell.raw.trim()) return;
@@ -3244,7 +3314,9 @@
                 if (isChallenged) {
                   const lbl = formatCatLabel(cat);
                   challenged.push({
+                    playerId: ps.playerId,
                     playerName: ps.playerName,
+                    avatar: resolveAvatar(ps.playerId, idx),
                     categoryLabel: lbl.secondary ? `${lbl.primary} (${lbl.secondary})` : lbl.primary,
                     word: cell.raw,
                     decision: cell.appealDecision,
@@ -3504,7 +3576,7 @@
 
           y += HEADER_H + 28;
 
-          // 4. Podium Top 3 Cards
+          // 4. Podium Top 3 Tiered Cards (Gold #1, Silver #2, Bronze #3)
           if (slots.length > 0) {
             const gap = 18;
             const slotCount = slots.length;
@@ -3512,40 +3584,53 @@
             const startX = slotCount === 1 ? CONTENT_X + (CONTENT_W - slotW) / 2 : CONTENT_X;
 
             slots.forEach((entry, idx) => {
-              const isFirst = entry.rank === 1;
+              const tier = entry.tier || entry.rank;
+              const isFirst = tier === 1 || entry.rank === 1;
+              const isThird = tier === 3;
               const sx = startX + idx * (slotW + gap);
-              const cardTop = isFirst ? y : y + 14;
-              const cardHeight = isFirst ? PODIUM_H : PODIUM_H - 14;
+              const topOffset = isFirst ? 0 : isThird ? 20 : 12;
+              const cardTop = y + topOffset;
+              const cardHeight = PODIUM_H - topOffset;
+
+              const bgFill = isFirst ? "#FFFBEB" : isThird ? "#FFF7ED" : "#F8FAFC";
+              const borderStroke = isFirst ? "#F59E0B" : isThird ? "#FB923C" : "#CBD5E1";
+              const rankTextCol = isFirst ? "#B45309" : isThird ? "#C2410C" : "#475569";
 
               drawRoundedRectPath(ctx, sx, cardTop, slotW, cardHeight, 14);
-              ctx.fillStyle = isFirst ? "#FFFBEB" : "#F8FAFC";
+              ctx.fillStyle = bgFill;
               ctx.fill();
-              ctx.strokeStyle = isFirst ? "#F59E0B" : "#E2E8F0";
-              ctx.lineWidth = isFirst ? 2.2 : 1.2;
+              ctx.strokeStyle = borderStroke;
+              ctx.lineWidth = isFirst ? 2.4 : 1.5;
               ctx.stroke();
 
               const cx = sx + slotW / 2;
               ctx.textAlign = "center";
 
-              // Rank label
-              ctx.fillStyle = isFirst ? "#B45309" : "#64748B";
+              // Rank & avatar line
+              ctx.fillStyle = rankTextCol;
               ctx.font = `700 13px ${FONT_MONO}`;
-              ctx.fillText(isFirst ? `★ RANK #${entry.rank}` : `RANK #${entry.rank}`, cx, cardTop + 28);
+              const rankBadge = isFirst
+                ? `🏆 RANK #${entry.rank}`
+                : tier === 2
+                  ? `🥈 RANK #${entry.rank}`
+                  : `🥉 RANK #${entry.rank}`;
+              ctx.fillText(rankBadge, cx, cardTop + 24);
 
-              // Player name
+              // Player name with avatar
               ctx.fillStyle = "#0F172A";
-              ctx.font = `800 ${isFirst ? 23 : 20}px ${FONT_DISPLAY}`;
-              ctx.fillText(truncateCanvasText(ctx, entry.playerName, slotW - 28), cx, cardTop + 62);
+              ctx.font = `800 ${isFirst ? 21 : 18}px ${FONT_DISPLAY}`;
+              const displayName = `${entry.avatar || ""} ${entry.playerName}`.trim();
+              ctx.fillText(truncateCanvasText(ctx, displayName, slotW - 24), cx, cardTop + 56);
 
               // Score
               ctx.fillStyle = "#047857";
-              ctx.font = `800 ${isFirst ? 32 : 27}px ${FONT_MONO}`;
-              ctx.fillText(`${entry.totalScore} pts`, cx, cardTop + (isFirst ? 104 : 96));
+              ctx.font = `800 ${isFirst ? 30 : 25}px ${FONT_MONO}`;
+              ctx.fillText(`${entry.totalScore} pts`, cx, cardTop + (isFirst ? 98 : 90));
 
               // Unique / shared breakdown
               ctx.fillStyle = "#64748B";
-              ctx.font = `600 13px ${FONT_MONO}`;
-              ctx.fillText(`${entry.uniqueCount} unique · ${entry.sharedCount} shared`, cx, cardTop + cardHeight - 22);
+              ctx.font = `600 12px ${FONT_MONO}`;
+              ctx.fillText(`${entry.uniqueCount} unique · ${entry.sharedCount} shared`, cx, cardTop + cardHeight - 20);
             });
 
             y += PODIUM_H + 30;
@@ -4057,6 +4142,92 @@
             totalChallenged,
           } = buildPodiumData();
 
+          const trophySvg = (sizeClass = "h-10 w-10") => `
+            <svg viewBox="0 0 64 64" class="${sizeClass} shrink-0 drop-shadow-sm" aria-hidden="true">
+              <defs>
+                <linearGradient id="goldCupGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#FEF08A"></stop>
+                  <stop offset="48%" stop-color="#F59E0B"></stop>
+                  <stop offset="100%" stop-color="#B45309"></stop>
+                </linearGradient>
+                <linearGradient id="goldBaseGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#D97706"></stop>
+                  <stop offset="100%" stop-color="#78350F"></stop>
+                </linearGradient>
+              </defs>
+              <path d="M18 14H10a6 6 0 0 0 0 12c2.5 0 5.5 2 8 6" fill="none" stroke="#D97706" stroke-width="4" stroke-linecap="round"></path>
+              <path d="M46 14h8a6 6 0 0 1 0 12c-2.5 0-5.5 2-8 6" fill="none" stroke="#D97706" stroke-width="4" stroke-linecap="round"></path>
+              <path d="M18 10h28v14c0 9.5-6.2 17-14 17s-14-7.5-14-17V10z" fill="url(#goldCupGrad)" stroke="#B45309" stroke-width="2"></path>
+              <path d="M24 14h4v12c0 4-1.5 7-4 9" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="2.5" stroke-linecap="round"></path>
+              <rect x="28" y="40" width="8" height="10" rx="2" fill="#D97706"></rect>
+              <rect x="20" y="49" width="24" height="5" rx="2.5" fill="url(#goldBaseGrad)"></rect>
+              <rect x="16" y="54" width="32" height="5" rx="2" fill="#78350F"></rect>
+              <polygon points="32,17 34.1,21.5 39,22.2 35.5,25.6 36.3,30.5 32,28.1 27.7,30.5 28.5,25.6 25,22.2 29.9,21.5" fill="#FFFBEB"></polygon>
+            </svg>`;
+
+          const renderPodiumPedestal = (entry) => {
+            const tier = entry.tier || entry.rank;
+            const isGold = tier === 1;
+            const isSilver = tier === 2;
+
+            const avatarRing = isGold
+              ? "bg-gradient-to-br from-amber-100 to-yellow-200 ring-4 ring-amber-400 shadow-md"
+              : isSilver
+                ? "bg-gradient-to-br from-slate-100 to-slate-200 ring-4 ring-slate-300 shadow-sm"
+                : "bg-gradient-to-br from-orange-100 to-amber-200 ring-4 ring-orange-300 shadow-sm";
+
+            const avatarSize = isGold
+              ? "h-16 w-16 sm:h-20 sm:w-20 text-3xl sm:text-4xl"
+              : "h-14 w-14 sm:h-16 sm:w-16 text-2xl sm:text-3xl";
+
+            const pedestalSurface = isGold
+              ? "bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 border-amber-500/80 text-amber-950 min-h-[142px] sm:min-h-[174px] py-3 sm:py-4 shadow-md"
+              : isSilver
+                ? "bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 border-slate-300 text-slate-900 min-h-[114px] sm:min-h-[138px] py-2.5 sm:py-3.5 shadow-sm"
+                : "bg-gradient-to-b from-orange-200 via-orange-300 to-amber-400/90 border-orange-400/80 text-orange-950 min-h-[84px] sm:min-h-[100px] py-2 sm:py-2.5 shadow-sm";
+
+            const tierCaption = entry.rank === 1
+              ? (isGold ? "Champion" : "Co-Winner")
+              : entry.rank === 2
+                ? "Runner-Up"
+                : "3rd Place";
+
+            const tierDelay = isGold ? "0.08s" : isSilver ? "0.16s" : "0.24s";
+
+            return `
+              <div class="podium-rise flex flex-col items-center min-w-0" style="animation-delay:${tierDelay}">
+                ${isGold ? `<div class="podium-trophy-bob mb-1.5">${trophySvg("h-10 w-10 sm:h-12 sm:w-12")}</div>` : `<div class="mb-2 h-5 sm:h-6 flex items-center text-[11px] font-bold tracking-wide ${entry.rank === 1 ? "text-amber-700" : isSilver ? "text-slate-500" : "text-orange-700"}">${tierCaption}</div>`}
+
+                <div class="relative flex flex-col items-center">
+                  <div class="flex items-center justify-center rounded-full ${avatarSize} ${avatarRing} select-none" aria-hidden="true">
+                    <span>${escapeHtml(entry.avatar)}</span>
+                  </div>
+                  <span class="-mt-2.5 inline-flex items-center justify-center rounded-md px-2 py-0.5 font-mono-tabular text-[10px] sm:text-[11px] font-extrabold shadow-xs ${
+                    isGold
+                      ? "bg-amber-950 text-amber-200"
+                      : isSilver
+                        ? "bg-slate-700 text-white"
+                        : "bg-orange-900 text-orange-100"
+                  }">#${entry.rank}</span>
+                </div>
+
+                <h2 class="mt-2 w-full truncate text-center font-display text-sm sm:text-lg font-extrabold text-slate-900 px-1" title="${escapeHtml(entry.playerName)}">
+                  ${escapeHtml(entry.playerName)}
+                </h2>
+                <p class="text-[10px] sm:text-xs font-mono-tabular text-slate-500 whitespace-nowrap">
+                  ${entry.uniqueCount}U · ${entry.sharedCount}S
+                </p>
+
+                <div class="mt-2.5 flex w-full flex-col items-center justify-between rounded-t-xl border-x border-t px-2 sm:px-3 text-center ${pedestalSurface}">
+                  <span class="font-display ${isGold ? "text-2xl sm:text-4xl" : isSilver ? "text-xl sm:text-3xl" : "text-lg sm:text-2xl"} font-extrabold leading-none opacity-90">#${entry.rank}</span>
+                  <div class="mt-1.5">
+                    <p class="font-mono-tabular ${isGold ? "text-base sm:text-2xl" : "text-sm sm:text-xl"} font-extrabold leading-tight">${entry.totalScore} <span class="text-[10px] sm:text-xs font-bold opacity-80">pts</span></p>
+                    ${isGold ? `<p class="mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wide opacity-80">Winner</p>` : ""}
+                  </div>
+                </div>
+              </div>`;
+          };
+
           const historyBodyHtml = `
             <div>
               <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Chosen Letters</p>
@@ -4071,24 +4242,28 @@
 
             <div class="space-y-4">
               ${roundHistoryEntries.map((entry) => `
-                <section class="rounded-lg border border-slate-200/90 bg-slate-50/50 p-3.5 space-y-3">
+                <section class="rounded-lg border border-slate-200/90 bg-slate-50/60 p-3.5 space-y-3">
                   <div class="flex items-center justify-between gap-2">
                     <div class="flex items-center gap-2 min-w-0">
                       <span class="inline-flex min-w-[1.75rem] items-center justify-center rounded-md bg-emerald-700 px-2 py-0.5 font-display text-xs font-extrabold text-white whitespace-nowrap">${escapeHtml(entry.letter)}</span>
                       <h3 class="text-xs font-bold text-slate-900">Round ${entry.roundNumber}</h3>
                     </div>
                     ${entry.challenged.length > 0
-                      ? `<span class="font-mono-tabular text-[11px] font-semibold text-amber-700">${entry.challenged.length} challenged</span>`
+                      ? `<span class="font-mono-tabular text-[11px] font-semibold text-amber-700">${entry.challenged.length} reviewed</span>`
                       : `<span class="font-mono-tabular text-[11px] text-slate-400">No challenges</span>`}
                   </div>
 
-                  <div class="space-y-2">
+                  <div class="space-y-2.5">
                     ${entry.sortedPlayers.map((ps) => {
                       const pct = Math.max(0, Math.min(100, Math.round((ps.roundTotal / 50) * 100)));
+                      const pal = ps.avatarPalette || { bg: "bg-slate-100", ring: "ring-slate-200" };
                       return `
                         <div class="space-y-1">
-                          <div class="flex items-baseline justify-between gap-2 text-xs">
-                            <span class="truncate font-semibold text-slate-800">${escapeHtml(ps.playerName)}</span>
+                          <div class="flex items-center justify-between gap-2 text-xs">
+                            <div class="flex items-center gap-2 min-w-0">
+                              <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${pal.bg} ring-1 ${pal.ring} text-sm leading-none" aria-hidden="true">${escapeHtml(ps.avatar)}</span>
+                              <span class="truncate font-semibold text-slate-800">${escapeHtml(ps.playerName)}</span>
+                            </div>
                             <span class="shrink-0 font-mono-tabular text-slate-600">
                               <span class="text-[11px] text-slate-400 mr-1.5">${ps.uniqueCount}U · ${ps.sharedCount}S</span>
                               <span class="font-bold text-slate-900">${ps.roundTotal} pts</span>
@@ -4103,7 +4278,7 @@
 
                   ${entry.challenged.length > 0 ? `
                     <div class="border-t border-slate-200/80 pt-2.5 space-y-2">
-                      <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Challenged Words</p>
+                      <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Challenged / Reviewed Words</p>
                       <ul class="space-y-1.5">
                         ${entry.challenged.map((ch) => {
                           const isRejected = ch.decision === "invalid" || ch.decision === "rejected";
@@ -4111,11 +4286,11 @@
                           const isApproved = ch.decision === "valid" || ch.decision === "approved";
                           const statusColor = isRejected ? "text-red-700" : isDuplicate ? "text-amber-700" : isApproved ? "text-emerald-700" : "text-amber-700";
                           const statusLabel = isRejected
-                            ? "Disapproved · +0"
+                            ? "Invalidated · +0"
                             : isDuplicate
-                              ? "Match / Same · +5"
+                              ? "5-pt Match · +5"
                               : isApproved
-                                ? `Approved · +${ch.points}`
+                                ? `Validated · +${ch.points}`
                                 : `Ruled · +${ch.points}`;
                           return `
                             <li class="rounded-md border border-slate-200/80 bg-white px-2.5 py-2 text-xs">
@@ -4124,7 +4299,7 @@
                                 <span class="shrink-0 font-mono-tabular text-[11px] font-semibold ${statusColor}">${statusLabel}</span>
                               </div>
                               <p class="mt-0.5 text-[11px] text-slate-500">
-                                ${escapeHtml(ch.playerName)} · ${escapeHtml(ch.categoryLabel)}
+                                <span aria-hidden="true">${escapeHtml(ch.avatar)}</span> ${escapeHtml(ch.playerName)} · ${escapeHtml(ch.categoryLabel)}
                               </p>
                               <p class="mt-0.5 text-[11px] ${statusColor}">
                                 ${escapeHtml(ch.reason)}
@@ -4144,60 +4319,100 @@
 
           return `
             <canvas id="podium-confetti-canvas" aria-hidden="true" class="pointer-events-none fixed inset-0 z-40 h-full w-full"></canvas>
-            <main class="relative z-10 mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
+            <main class="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-10">
               <div class="grid gap-8 lg:grid-cols-12 items-start">
-                <div class="lg:col-span-8 space-y-8 min-w-0">
-                  <section class="rounded-xl border border-slate-200 bg-white p-7 text-center shadow-sm">
-                    <p class="text-xs font-semibold text-emerald-700">Match Complete · ${resultsList.length} ${resultsList.length === 1 ? "Round" : "Rounds"} Played</p>
-                    <h1 class="mt-1 font-display text-3xl font-extrabold text-slate-900 sm:text-4xl">${escapeHtml(headline)}</h1>
-                    ${winner ? `<p class="mt-2 text-sm text-slate-600 font-mono-tabular">${winner.totalScore} total points · ${winner.uniqueCount} unique · ${winner.sharedCount} shared</p>` : ""}
-                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2 lg:hidden">
-                      <button type="button" data-action="open-history-drawer"
-                        class="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap">
-                        <span>Game History</span>
-                        <span class="font-mono-tabular text-[11px] text-slate-500">${resultsList.length}R · ${totalChallenged} challenged</span>
-                      </button>
-                      <button type="button" data-action="export-podium-image"
-                        class="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">
-                        <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
-                          <path d="M13 4.5a2.5 2.5 0 11.702 1.737L6.97 9.604a2.518 2.518 0 010 .792l6.733 3.367a2.5 2.5 0 11-.671 1.341l-6.733-3.367a2.5 2.5 0 110-3.474l6.733-3.366A2.52 2.52 0 0113 4.5z" />
-                        </svg>
-                        <span>Share Image</span>
-                      </button>
+                <div class="lg:col-span-8 space-y-6 sm:space-y-8 min-w-0">
+                  <!-- Victory Stage Card: Header + 3-Tier Gold/Silver/Bronze Podium -->
+                  <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div class="bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-800 px-5 py-6 sm:px-8 sm:py-7 text-center text-white">
+                      <div class="flex flex-wrap items-center justify-between gap-2 text-left">
+                        <p class="text-xs font-semibold text-emerald-200">
+                          Match Complete · ${resultsList.length} ${resultsList.length === 1 ? "Round" : "Rounds"} Played
+                        </p>
+                        <div class="flex items-center gap-1.5" aria-label="Confetti intensity controls">
+                          <div class="inline-flex rounded-lg bg-emerald-950/55 p-0.5 border border-emerald-700/60">
+                            <button type="button" data-action="set-confetti-mode" data-cmode="normal"
+                              class="rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                                state.confettiMode === "normal" ? "bg-amber-400 text-amber-950 shadow-xs" : "text-emerald-100 hover:text-white"
+                              }">Vibrant</button>
+                            <button type="button" data-action="set-confetti-mode" data-cmode="fast"
+                              class="rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                                state.confettiMode === "fast" ? "bg-amber-400 text-amber-950 shadow-xs" : "text-emerald-100 hover:text-white"
+                              }">Fast / Light</button>
+                          </div>
+                          <button type="button" data-action="replay-confetti" title="Replay celebration confetti"
+                            class="inline-flex h-7 items-center rounded-lg border border-emerald-600/70 bg-emerald-950/45 px-2.5 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-900 hover:text-white whitespace-nowrap">
+                            Replay 🎉
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="mt-4 flex flex-col items-center">
+                        <h1 class="font-display text-3xl font-extrabold tracking-tight text-white sm:text-4xl">${escapeHtml(headline)}</h1>
+                        ${winner ? `<p class="mt-1.5 text-sm font-semibold text-amber-200 font-mono-tabular">${winner.totalScore} total points · ${winner.uniqueCount} unique · ${winner.sharedCount} shared</p>` : ""}
+                      </div>
+
+                      <div class="mt-4 flex flex-wrap items-center justify-center gap-2 lg:hidden">
+                        <button type="button" data-action="open-history-drawer"
+                          class="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-emerald-600/70 bg-emerald-950/45 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-950/70 whitespace-nowrap">
+                          <span>Game History</span>
+                          <span class="font-mono-tabular text-[11px] text-emerald-200">${resultsList.length}R · ${totalChallenged} reviewed</span>
+                        </button>
+                        <button type="button" data-action="export-podium-image"
+                          class="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-amber-400 px-3.5 py-2 text-xs font-bold text-amber-950 hover:bg-amber-300 whitespace-nowrap">
+                          <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                            <path d="M13 4.5a2.5 2.5 0 11.702 1.737L6.97 9.604a2.518 2.518 0 010 .792l6.733 3.367a2.5 2.5 0 11-.671 1.341l-6.733-3.367a2.5 2.5 0 110-3.474l6.733-3.366A2.52 2.52 0 0113 4.5z" />
+                          </svg>
+                          <span>Share Image</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- 3-Tier Victory Podium Stage -->
+                    <div id="victory-podium-stage" class="bg-gradient-to-b from-amber-50/45 via-white to-slate-50/70 px-3 pt-6 pb-0 sm:px-7 sm:pt-8">
+                      <div class="mx-auto grid items-end ${
+                        slots.length === 3
+                          ? "grid-cols-3 gap-2 sm:gap-4 max-w-2xl"
+                          : slots.length === 2
+                            ? "grid-cols-2 gap-4 max-w-md"
+                            : "grid-cols-1 max-w-xs"
+                      }">
+                        ${slots.map((entry) => renderPodiumPedestal(entry)).join("")}
+                      </div>
+                      <div class="h-2.5 w-full rounded-b-none bg-slate-200/80 border-t border-slate-300/70"></div>
                     </div>
                   </section>
 
-                  <section class="grid gap-4 items-end ${slots.length === 3 ? "sm:grid-cols-3" : slots.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1 max-w-sm mx-auto"}">
-                    ${slots.map((entry) => `
-                      <div class="rounded-xl border bg-white p-5 text-center shadow-sm ${entry.rank === 1 ? "border-amber-300 ring-2 ring-amber-400/25 sm:pb-8 sm:pt-7" : "border-slate-200"}">
-                        <p class="font-mono-tabular text-xs font-bold text-slate-500">Rank #${entry.rank}</p>
-                        <h2 class="mt-1 truncate font-display text-xl font-extrabold text-slate-900">${escapeHtml(entry.playerName)}</h2>
-                        <p class="mt-2 font-mono-tabular text-2xl font-extrabold text-emerald-700">${entry.totalScore} <span class="text-xs font-semibold text-slate-500">pts</span></p>
-                        <p class="mt-1 text-xs text-slate-500 font-mono-tabular">${entry.uniqueCount} unique · ${entry.sharedCount} shared</p>
-                      </div>`).join("")}
-                  </section>
-
+                  <!-- Full Final Scoreboard Table -->
                   <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
                     <table class="w-full border-collapse text-left text-sm">
                       <thead>
                         <tr class="border-b border-slate-200 bg-slate-50">
-                          <th class="px-4 py-3 font-semibold text-slate-700">Rank</th>
-                          <th class="px-4 py-3 font-semibold text-slate-700">Player</th>
-                          ${resultsList.map((r) => `<th class="px-3 py-3 text-right font-mono-tabular text-xs font-semibold text-slate-600">R${r.roundNumber} (${escapeHtml(r.letter)})</th>`).join("")}
-                          <th class="px-4 py-3 text-right font-semibold text-slate-900">Total</th>
+                          <th class="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">Rank</th>
+                          <th class="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">Player</th>
+                          ${resultsList.map((r) => `<th class="px-3 py-3 text-right font-mono-tabular text-xs font-semibold text-slate-600 whitespace-nowrap">R${r.roundNumber} (${escapeHtml(r.letter)})</th>`).join("")}
+                          <th class="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">Total</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-slate-100">
-                        ${standings.map((s) => `
-                          <tr>
-                            <td class="px-4 py-3 font-mono-tabular text-xs font-bold text-slate-500">#${s.rank}</td>
-                            <td class="px-4 py-3 font-semibold text-slate-900">${escapeHtml(s.playerName)}</td>
+                        ${standings.map((s) => {
+                          const pal = s.avatarPalette || { bg: "bg-slate-100", ring: "ring-slate-200" };
+                          return `
+                          <tr class="${s.rank === 1 ? "bg-amber-50/45" : ""}">
+                            <td class="px-4 py-3 font-mono-tabular text-xs font-bold ${s.rank === 1 ? "text-amber-700" : "text-slate-500"}">#${s.rank}</td>
+                            <td class="px-4 py-3 font-semibold text-slate-900">
+                              <div class="flex items-center gap-2.5">
+                                <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${pal.bg} ring-1 ${pal.ring} text-base leading-none" aria-hidden="true">${escapeHtml(s.avatar)}</span>
+                                <span class="truncate">${escapeHtml(s.playerName)}</span>
+                              </div>
+                            </td>
                             ${resultsList.map((r) => {
                               const ps = r.playerScores.find((p) => p.playerId === s.playerId);
                               return `<td class="px-3 py-3 text-right font-mono-tabular text-xs text-slate-600">${ps ? ps.roundTotal : 0}</td>`;
                             }).join("")}
                             <td class="px-4 py-3 text-right font-mono-tabular text-sm font-bold text-emerald-700">${s.totalScore}</td>
-                          </tr>`).join("")}
+                          </tr>`;
+                        }).join("")}
                       </tbody>
                     </table>
                   </section>
@@ -4220,7 +4435,7 @@
                     <div>
                       <h2 class="font-display text-base font-extrabold text-slate-900">Game History</h2>
                       <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">
-                        ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged
+                        ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} reviewed
                       </p>
                     </div>
                     <button type="button" data-action="export-podium-image" title="Export scoreboard & round history as PNG"
@@ -4243,7 +4458,7 @@
                     <div>
                       <h2 class="font-display text-base font-extrabold text-slate-900">Game History</h2>
                       <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">
-                        ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged
+                        ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} reviewed
                       </p>
                     </div>
                     <div class="flex items-center gap-2">
@@ -4368,7 +4583,7 @@
           }
         }
 
-        function startPodiumConfetti() {
+        function startPodiumConfetti(modeOverride) {
           stopPodiumConfetti();
           if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
             return;
@@ -4379,19 +4594,25 @@
           const ctx = canvas.getContext("2d");
           if (!ctx) return;
 
+          const mode = modeOverride || state.confettiMode || "normal";
+          const isFast = mode === "fast";
+          const densityScale = isFast ? 0.52 : 1.15;
+          const speedScale = isFast ? 1.48 : 1.0;
+
           const colors = [
             "#047857",
             "#10b981",
             "#34d399",
             "#f59e0b",
             "#fbbf24",
+            "#fde047",
             "#f43f5e",
             "#ec4899",
             "#0ea5e9",
             "#6366f1",
             "#a855f7",
           ];
-          const shapes = ["rect", "circle", "ribbon", "diamond"];
+          const shapes = ["rect", "circle", "ribbon", "diamond", "star"];
           const particles = [];
 
           let width = window.innerWidth;
@@ -4412,33 +4633,35 @@
 
           function pushParticle(x, y, vx, vy, options = {}) {
             const shape = shapes[Math.floor(Math.random() * shapes.length)];
+            const baseLife = isFast ? 150 : (options.lifeBase ?? 320);
             particles.push({
               x,
               y,
-              vx,
-              vy,
-              gravity: (options.gravityBase ?? 0.15) + Math.random() * 0.1,
+              vx: vx * (isFast ? 1.18 : 1),
+              vy: vy * (isFast ? 1.18 : 1),
+              gravity: ((options.gravityBase ?? 0.15) + Math.random() * 0.1) * speedScale,
               drag: 0.986 + Math.random() * 0.008,
-              maxVy: 4.2 + Math.random() * 2.6,
+              maxVy: (4.2 + Math.random() * 2.6) * speedScale,
               w: shape === "ribbon" ? 4.5 + Math.random() * 3.5 : 6.5 + Math.random() * 5.5,
               h: shape === "ribbon" ? 14 + Math.random() * 8 : 6.5 + Math.random() * 5.5,
               shape,
               color: colors[Math.floor(Math.random() * colors.length)],
               rotation: Math.random() * Math.PI * 2,
-              rotationSpeed: (Math.random() - 0.5) * 0.26,
+              rotationSpeed: (Math.random() - 0.5) * 0.26 * speedScale,
               tilt: Math.random() * Math.PI * 2,
-              tiltSpeed: 0.09 + Math.random() * 0.16,
+              tiltSpeed: (0.09 + Math.random() * 0.16) * speedScale,
               wobblePhase: Math.random() * Math.PI * 2,
-              wobbleSpeed: 0.05 + Math.random() * 0.09,
+              wobbleSpeed: (0.05 + Math.random() * 0.09) * speedScale,
               wobbleAmp: 0.7 + Math.random() * 0.95,
               alpha: 1,
               life: 0,
-              maxLife: (options.lifeBase ?? 320) + Math.random() * 180,
+              maxLife: baseLife + Math.random() * (isFast ? 75 : 180),
             });
           }
 
           function spawnBurst(originX, originY, count, spreadMin, spreadMax, speedMin, speedMax, options) {
-            for (let i = 0; i < count; i++) {
+            const scaled = Math.max(8, Math.round(count * densityScale));
+            for (let i = 0; i < scaled; i++) {
               const angle = spreadMin + Math.random() * (spreadMax - spreadMin);
               const speed = speedMin + Math.random() * (speedMax - speedMin);
               pushParticle(
@@ -4452,7 +4675,8 @@
           }
 
           function spawnTopShower(count, options) {
-            for (let i = 0; i < count; i++) {
+            const scaled = Math.max(10, Math.round(count * densityScale));
+            for (let i = 0; i < scaled; i++) {
               const x = width * (0.04 + Math.random() * 0.92);
               const y = -12 - Math.random() * 70;
               const vx = (Math.random() - 0.5) * 3.4;
@@ -4475,28 +4699,29 @@
           spawnBurst(width * 0.92, height * 0.76, 85, -Math.PI * 0.88, -Math.PI * 0.55, 12, 22);
           spawnTopShower(90);
 
-          // Wave 2 (550ms): dual upper-corner celebration bursts
-          scheduleWave(550, () => {
-            spawnBurst(width * 0.24, height * 0.24, 55, -Math.PI * 0.85, -Math.PI * 0.15, 6, 13);
-            spawnBurst(width * 0.76, height * 0.24, 55, -Math.PI * 0.85, -Math.PI * 0.15, 6, 13);
-          });
-
-          // Wave 3 (1350ms): center starburst + mid-celebration top shower
-          scheduleWave(1350, () => {
-            spawnBurst(width * 0.5, height * 0.3, 70, -Math.PI * 0.92, -Math.PI * 0.08, 7, 15);
-            spawnTopShower(55);
-          });
-
-          // Wave 4 (2400ms): side cannon encore
-          scheduleWave(2400, () => {
-            spawnBurst(width * 0.1, height * 0.68, 55, -Math.PI * 0.44, -Math.PI * 0.14, 11, 20);
-            spawnBurst(width * 0.9, height * 0.68, 55, -Math.PI * 0.86, -Math.PI * 0.56, 11, 20);
-          });
-
-          // Wave 5 (3600ms): lingering festive flutter rain
-          scheduleWave(3600, () => {
-            spawnTopShower(65, { gravityBase: 0.09, lifeBase: 380 });
-          });
+          if (isFast) {
+            // Fast / Light mode: single snappy center encore then quick clean settle
+            scheduleWave(340, () => {
+              spawnBurst(width * 0.5, height * 0.28, 55, -Math.PI * 0.9, -Math.PI * 0.1, 8, 16);
+            });
+          } else {
+            // Normal Vibrant mode: full multi-wave podium celebration
+            scheduleWave(550, () => {
+              spawnBurst(width * 0.24, height * 0.24, 58, -Math.PI * 0.85, -Math.PI * 0.15, 6, 13);
+              spawnBurst(width * 0.76, height * 0.24, 58, -Math.PI * 0.85, -Math.PI * 0.15, 6, 13);
+            });
+            scheduleWave(1350, () => {
+              spawnBurst(width * 0.5, height * 0.28, 76, -Math.PI * 0.92, -Math.PI * 0.08, 7, 15);
+              spawnTopShower(60);
+            });
+            scheduleWave(2400, () => {
+              spawnBurst(width * 0.1, height * 0.68, 55, -Math.PI * 0.44, -Math.PI * 0.14, 11, 20);
+              spawnBurst(width * 0.9, height * 0.68, 55, -Math.PI * 0.86, -Math.PI * 0.56, 11, 20);
+            });
+            scheduleWave(3600, () => {
+              spawnTopShower(68, { gravityBase: 0.09, lifeBase: 380 });
+            });
+          }
 
           let lastTime = performance.now();
 
@@ -4517,7 +4742,7 @@
               p.rotation += p.rotationSpeed * dt;
               p.tilt += p.tiltSpeed * dt;
 
-              const fadeStart = p.maxLife * 0.78;
+              const fadeStart = p.maxLife * 0.74;
               if (p.life > fadeStart) {
                 p.alpha = Math.max(0, 1 - (p.life - fadeStart) / (p.maxLife - fadeStart));
               }
@@ -4544,6 +4769,18 @@
                 ctx.lineTo(p.w * 0.55, 0);
                 ctx.lineTo(0, p.h * 0.6);
                 ctx.lineTo(-p.w * 0.55, 0);
+                ctx.closePath();
+                ctx.fill();
+              } else if (p.shape === "star") {
+                const outerR = p.w * 0.62;
+                const innerR = outerR * 0.44;
+                ctx.beginPath();
+                for (let s = 0; s < 10; s++) {
+                  const r = s % 2 === 0 ? outerR : innerR;
+                  const a = (s * Math.PI) / 5 - Math.PI / 2;
+                  if (s === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+                  else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+                }
                 ctx.closePath();
                 ctx.fill();
               } else {
@@ -4882,6 +5119,15 @@
           }
           else if (act === "copy-podium-image") {
             copyPodiumImageToClipboard();
+          }
+          else if (act === "set-confetti-mode") {
+            const nextMode = btn.dataset.cmode === "fast" ? "fast" : "normal";
+            state.confettiMode = nextMode;
+            render();
+            startPodiumConfetti(nextMode);
+          }
+          else if (act === "replay-confetti") {
+            startPodiumConfetti(state.confettiMode);
           }
           else if (act === "back-confirm-stay") {
             state.backConfirmOpen = false;
