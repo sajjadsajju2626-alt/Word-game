@@ -748,6 +748,10 @@
           reviewMenuOpen: false,
           rulesOpen: false,
           historyDrawerOpen: false,
+          shareModalOpen: false,
+          shareImageDataUrl: "",
+          shareImageStatus: "",
+          shareImageBusy: false,
           backConfirmOpen: false,
           readyCountdownEndsAt: 0,
           // Waiting Lobby entertainment state
@@ -1899,6 +1903,10 @@
           state.readyCountdownEndsAt = 0;
           state.reviewMenuOpen = false;
           state.historyDrawerOpen = false;
+          state.shareModalOpen = false;
+          state.shareImageDataUrl = "";
+          state.shareImageStatus = "";
+          state.shareImageBusy = false;
           state.backConfirmOpen = false;
           state.phase = "title";
           render();
@@ -1939,6 +1947,10 @@
           state.reviewMenuOpen = false;
           state.rulesOpen = false;
           state.historyDrawerOpen = false;
+          state.shareModalOpen = false;
+          state.shareImageDataUrl = "";
+          state.shareImageStatus = "";
+          state.shareImageBusy = false;
           state.backConfirmOpen = false;
           state.onlineError = firebaseInitError;
           state.phase = "title";
@@ -3193,7 +3205,7 @@
             </main>`;
         }
 
-        function renderPodium() {
+        function buildPodiumData() {
           const isOnline = state.mode === "online" && state.room;
           const players = isOnline ? getOrderedRoomPlayers(state.room) : state.activePlayers;
           const resultsList = isOnline ? getOnlineAllRoundResults(state.room) : state.roundResults;
@@ -3247,6 +3259,803 @@
           });
 
           const totalChallenged = roundHistoryEntries.reduce((sum, entry) => sum + entry.challenged.length, 0);
+
+          return {
+            isOnline,
+            players,
+            resultsList,
+            standings,
+            winners,
+            winner,
+            headline,
+            top3,
+            slots,
+            roundHistoryEntries,
+            totalChallenged,
+          };
+        }
+
+        function drawRoundedRectPath(ctx, x, y, w, h, r) {
+          const radius = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + radius, y);
+          ctx.lineTo(x + w - radius, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+          ctx.lineTo(x + w, y + h - radius);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+          ctx.lineTo(x + radius, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+          ctx.lineTo(x, y + radius);
+          ctx.quadraticCurveTo(x, y, x + radius, y);
+          ctx.closePath();
+        }
+
+        function truncateCanvasText(ctx, text, maxWidth) {
+          const str = String(text ?? "");
+          if (maxWidth <= 0) return "";
+          if (ctx.measureText(str).width <= maxWidth) return str;
+          const ellipsis = "…";
+          const ellipsisW = ctx.measureText(ellipsis).width;
+          if (ellipsisW >= maxWidth) return ellipsis;
+          let lo = 0;
+          let hi = str.length;
+          while (lo < hi) {
+            const mid = Math.ceil((lo + hi) / 2);
+            if (ctx.measureText(str.slice(0, mid)).width + ellipsisW <= maxWidth) {
+              lo = mid;
+            } else {
+              hi = mid - 1;
+            }
+          }
+          return str.slice(0, lo) + ellipsis;
+        }
+
+        function dataUrlToBlob(dataUrl) {
+          const parts = String(dataUrl || "").split(",");
+          if (parts.length < 2) return null;
+          const mimeMatch = parts[0].match(/:(.*?);/);
+          const mime = mimeMatch ? mimeMatch[1] : "image/png";
+          const binary = atob(parts[1]);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          return new Blob([bytes], { type: mime });
+        }
+
+        function getExportFileName() {
+          const now = new Date();
+          const pad = (n) => String(n).padStart(2, "0");
+          const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+          return `name-place-animal-thing-scoreboard-${stamp}.png`;
+        }
+
+        async function generatePodiumScoreboardImage() {
+          if (document.fonts && document.fonts.ready) {
+            try {
+              await Promise.race([
+                document.fonts.ready,
+                new Promise((resolve) => setTimeout(resolve, 600)),
+              ]);
+            } catch {}
+          }
+
+          const data = buildPodiumData();
+          const { resultsList, standings, winner, headline, slots, roundHistoryEntries, totalChallenged } = data;
+
+          const W = 1080;
+          const OUTER_PAD = 36;
+          const CARD_X = OUTER_PAD;
+          const CARD_W = W - OUTER_PAD * 2;
+          const INNER_PAD = 36;
+          const CONTENT_X = CARD_X + INNER_PAD;
+          const CONTENT_W = CARD_W - INNER_PAD * 2;
+
+          const FONT_DISPLAY = '"Bricolage Grotesque", "Noto Sans Malayalam", "Plus Jakarta Sans", system-ui, sans-serif';
+          const FONT_SANS = '"Plus Jakarta Sans", "Noto Sans Malayalam", system-ui, sans-serif';
+          const FONT_MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, monospace';
+
+          // Scratch context for measuring wrapped letter chips accurately
+          const measureCanvas = document.createElement("canvas");
+          const mctx = measureCanvas.getContext("2d");
+
+          // Pre-layout Chosen Letters chips to get exact row count
+          const chipRows = [];
+          if (roundHistoryEntries.length > 0) {
+            let curRow = [];
+            let curX = 0;
+            const chipGap = 10;
+            roundHistoryEntries.forEach((entry) => {
+              mctx.font = `700 13px ${FONT_MONO}`;
+              const rLabel = `R${entry.roundNumber}`;
+              const rW = mctx.measureText(rLabel).width;
+              mctx.font = `800 15px ${FONT_DISPLAY}`;
+              const lW = mctx.measureText(entry.letter).width;
+              const chipW = Math.min(CONTENT_W, Math.ceil(14 + rW + 8 + lW + 14));
+              if (curRow.length > 0 && curX + chipGap + chipW > CONTENT_W) {
+                chipRows.push(curRow);
+                curRow = [];
+                curX = 0;
+              }
+              curRow.push({ rLabel, letter: entry.letter, rW, chipW, x: curX });
+              curX += chipW + chipGap;
+            });
+            if (curRow.length > 0) chipRows.push(curRow);
+          }
+
+          // Compute exact deterministic canvas height
+          const HEADER_H = 196;
+          const PODIUM_H = slots.length > 0 ? 156 : 0;
+          const TABLE_HEADER_H = 44;
+          const TABLE_ROW_H = 46;
+          const TABLE_SECTION_H = 38 + TABLE_HEADER_H + Math.max(1, standings.length) * TABLE_ROW_H;
+          const LETTERS_SECTION_H = chipRows.length > 0 ? 28 + chipRows.length * 40 : 0;
+
+          const roundCardHeights = roundHistoryEntries.map((entry) => {
+            const topH = 48;
+            const playersH = Math.max(1, entry.sortedPlayers.length) * 34 + 6;
+            const challengedH = entry.challenged.length > 0
+              ? 28 + entry.challenged.length * 56 + 6
+              : 0;
+            return topH + playersH + challengedH + 14;
+          });
+          const ROUNDS_TOTAL_H = roundCardHeights.reduce((sum, h) => sum + h, 0) + Math.max(0, roundCardHeights.length - 1) * 14;
+          const NO_CHALLENGES_NOTE_H = totalChallenged === 0 && roundHistoryEntries.length > 0 ? 28 : 0;
+          const HISTORY_HEADER_H = 38;
+          const FOOTER_H = 46;
+
+          let totalInnerH = INNER_PAD;
+          totalInnerH += HEADER_H + 28;
+          if (PODIUM_H > 0) totalInnerH += PODIUM_H + 30;
+          totalInnerH += TABLE_SECTION_H + 34;
+          if (roundHistoryEntries.length > 0) {
+            totalInnerH += HISTORY_HEADER_H;
+            if (LETTERS_SECTION_H > 0) totalInnerH += LETTERS_SECTION_H + 16;
+            totalInnerH += ROUNDS_TOTAL_H;
+            if (NO_CHALLENGES_NOTE_H > 0) totalInnerH += NO_CHALLENGES_NOTE_H;
+            totalInnerH += 22;
+          }
+          totalInnerH += FOOTER_H + 20;
+
+          const CARD_H = Math.ceil(totalInnerH);
+          const H = CARD_H + OUTER_PAD * 2;
+          const dpr = 2;
+
+          const canvas = document.createElement("canvas");
+          canvas.width = W * dpr;
+          canvas.height = H * dpr;
+          const ctx = canvas.getContext("2d");
+          ctx.scale(dpr, dpr);
+          ctx.textBaseline = "middle";
+
+          // 1. Soft background canvas
+          ctx.fillStyle = "#F1F5F9";
+          ctx.fillRect(0, 0, W, H);
+
+          // 2. Main white sheet card with subtle elevation
+          ctx.save();
+          ctx.shadowColor = "rgba(15, 23, 42, 0.08)";
+          ctx.shadowBlur = 24;
+          ctx.shadowOffsetY = 8;
+          drawRoundedRectPath(ctx, CARD_X, OUTER_PAD, CARD_W, CARD_H, 22);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fill();
+          ctx.restore();
+
+          drawRoundedRectPath(ctx, CARD_X, OUTER_PAD, CARD_W, CARD_H, 22);
+          ctx.strokeStyle = "#E2E8F0";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          let y = OUTER_PAD + INNER_PAD;
+
+          // 3. Header Banner (Deep Emerald Brand Card)
+          const bannerGrad = ctx.createLinearGradient(CONTENT_X, y, CONTENT_X + CONTENT_W, y + HEADER_H);
+          bannerGrad.addColorStop(0, "#065F46");
+          bannerGrad.addColorStop(1, "#047857");
+          drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, HEADER_H, 16);
+          ctx.fillStyle = bannerGrad;
+          ctx.fill();
+
+          // Subtle geometric decorative circles inside banner (clipped cleanly)
+          ctx.save();
+          drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, HEADER_H, 16);
+          ctx.clip();
+          ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+          ctx.beginPath();
+          ctx.arc(CONTENT_X + CONTENT_W - 40, y + 20, 110, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(CONTENT_X + 60, y + HEADER_H + 15, 85, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          // Top brand row inside banner
+          ctx.fillStyle = "#A7F3D0";
+          ctx.font = `600 14px ${FONT_SANS}`;
+          ctx.textAlign = "left";
+          ctx.fillText("പേര് · സ്ഥലം · മൃഗം · പൂവ് · സാധനം", CONTENT_X + 28, y + 32);
+
+          ctx.fillStyle = "#D1FAE5";
+          ctx.font = `600 13px ${FONT_MONO}`;
+          ctx.textAlign = "right";
+          const roundsMeta = `${resultsList.length} ${resultsList.length === 1 ? "ROUND" : "ROUNDS"} PLAYED · ${totalChallenged} CHALLENGED`;
+          ctx.fillText(roundsMeta, CONTENT_X + CONTENT_W - 28, y + 32);
+
+          // App title line
+          ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+          ctx.font = `700 16px ${FONT_SANS}`;
+          ctx.textAlign = "left";
+          ctx.fillText("Name, Place, Animal, Thing", CONTENT_X + 28, y + 60);
+
+          // Winner Headline (centerpiece)
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = `800 38px ${FONT_DISPLAY}`;
+          ctx.textAlign = "left";
+          ctx.fillText(truncateCanvasText(ctx, headline, CONTENT_W - 56), CONTENT_X + 28, y + 114);
+
+          // Winner stats line
+          if (winner) {
+            ctx.fillStyle = "#FDE68A";
+            ctx.font = `700 16px ${FONT_MONO}`;
+            const statLine = `${winner.totalScore} total points  ·  ${winner.uniqueCount} unique  ·  ${winner.sharedCount} shared`;
+            ctx.fillText(statLine, CONTENT_X + 28, y + 158);
+          }
+
+          y += HEADER_H + 28;
+
+          // 4. Podium Top 3 Cards
+          if (slots.length > 0) {
+            const gap = 18;
+            const slotCount = slots.length;
+            const slotW = slotCount === 1 ? 360 : (CONTENT_W - gap * (slotCount - 1)) / slotCount;
+            const startX = slotCount === 1 ? CONTENT_X + (CONTENT_W - slotW) / 2 : CONTENT_X;
+
+            slots.forEach((entry, idx) => {
+              const isFirst = entry.rank === 1;
+              const sx = startX + idx * (slotW + gap);
+              const cardTop = isFirst ? y : y + 14;
+              const cardHeight = isFirst ? PODIUM_H : PODIUM_H - 14;
+
+              drawRoundedRectPath(ctx, sx, cardTop, slotW, cardHeight, 14);
+              ctx.fillStyle = isFirst ? "#FFFBEB" : "#F8FAFC";
+              ctx.fill();
+              ctx.strokeStyle = isFirst ? "#F59E0B" : "#E2E8F0";
+              ctx.lineWidth = isFirst ? 2.2 : 1.2;
+              ctx.stroke();
+
+              const cx = sx + slotW / 2;
+              ctx.textAlign = "center";
+
+              // Rank label
+              ctx.fillStyle = isFirst ? "#B45309" : "#64748B";
+              ctx.font = `700 13px ${FONT_MONO}`;
+              ctx.fillText(isFirst ? `★ RANK #${entry.rank}` : `RANK #${entry.rank}`, cx, cardTop + 28);
+
+              // Player name
+              ctx.fillStyle = "#0F172A";
+              ctx.font = `800 ${isFirst ? 23 : 20}px ${FONT_DISPLAY}`;
+              ctx.fillText(truncateCanvasText(ctx, entry.playerName, slotW - 28), cx, cardTop + 62);
+
+              // Score
+              ctx.fillStyle = "#047857";
+              ctx.font = `800 ${isFirst ? 32 : 27}px ${FONT_MONO}`;
+              ctx.fillText(`${entry.totalScore} pts`, cx, cardTop + (isFirst ? 104 : 96));
+
+              // Unique / shared breakdown
+              ctx.fillStyle = "#64748B";
+              ctx.font = `600 13px ${FONT_MONO}`;
+              ctx.fillText(`${entry.uniqueCount} unique · ${entry.sharedCount} shared`, cx, cardTop + cardHeight - 22);
+            });
+
+            y += PODIUM_H + 30;
+          }
+
+          // 5. Final Scoreboard Table
+          ctx.textAlign = "left";
+          ctx.fillStyle = "#0F172A";
+          ctx.font = `800 20px ${FONT_DISPLAY}`;
+          ctx.fillText("Final Scoreboard", CONTENT_X, y + 14);
+
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#64748B";
+          ctx.font = `600 13px ${FONT_MONO}`;
+          ctx.fillText(`${standings.length} ${standings.length === 1 ? "player" : "players"}`, CONTENT_X + CONTENT_W, y + 14);
+
+          y += 38;
+
+          const tableH = TABLE_HEADER_H + Math.max(1, standings.length) * TABLE_ROW_H;
+          ctx.save();
+          drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, tableH, 12);
+          ctx.clip();
+
+          // Table header background
+          ctx.fillStyle = "#F1F5F9";
+          ctx.fillRect(CONTENT_X, y, CONTENT_W, TABLE_HEADER_H);
+
+          const rankColW = 72;
+          const totalColW = 104;
+          const numRounds = resultsList.length;
+          const maxRoundAreaW = Math.min(numRounds * 220, Math.floor(CONTENT_W * 0.6));
+          const roundColW = numRounds > 0 ? Math.floor(maxRoundAreaW / numRounds) : 0;
+          const playerColW = CONTENT_W - rankColW - totalColW - roundColW * numRounds;
+
+          const colRankX = CONTENT_X + 18;
+          const colPlayerX = CONTENT_X + rankColW;
+          const colRoundsStartX = colPlayerX + playerColW;
+          const colTotalRightX = CONTENT_X + CONTENT_W - 18;
+
+          // Header text
+          ctx.fillStyle = "#475569";
+          ctx.font = `700 13px ${FONT_SANS}`;
+          ctx.textAlign = "left";
+          ctx.fillText("Rank", colRankX, y + TABLE_HEADER_H / 2);
+          ctx.fillText("Player", colPlayerX, y + TABLE_HEADER_H / 2);
+
+          ctx.font = `700 12px ${FONT_MONO}`;
+          ctx.textAlign = "right";
+          resultsList.forEach((r, idx) => {
+            const rx = colRoundsStartX + (idx + 1) * roundColW - 10;
+            const rawHeader = `R${r.roundNumber} (${r.letter})`;
+            ctx.fillText(truncateCanvasText(ctx, rawHeader, roundColW - 10), rx, y + TABLE_HEADER_H / 2);
+          });
+
+          ctx.fillStyle = "#0F172A";
+          ctx.font = `700 13px ${FONT_SANS}`;
+          ctx.fillText("Total", colTotalRightX, y + TABLE_HEADER_H / 2);
+
+          // Table body rows
+          standings.forEach((s, rowIdx) => {
+            const ry = y + TABLE_HEADER_H + rowIdx * TABLE_ROW_H;
+            ctx.fillStyle = s.rank === 1 ? "#ECFDF5" : rowIdx % 2 === 1 ? "#F8FAFC" : "#FFFFFF";
+            ctx.fillRect(CONTENT_X, ry, CONTENT_W, TABLE_ROW_H);
+
+            // Top row hairline
+            ctx.strokeStyle = "#E2E8F0";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(CONTENT_X, ry);
+            ctx.lineTo(CONTENT_X + CONTENT_W, ry);
+            ctx.stroke();
+
+            const midY = ry + TABLE_ROW_H / 2;
+
+            ctx.textAlign = "left";
+            ctx.fillStyle = s.rank === 1 ? "#047857" : "#64748B";
+            ctx.font = `700 14px ${FONT_MONO}`;
+            ctx.fillText(`#${s.rank}`, colRankX, midY);
+
+            ctx.fillStyle = "#0F172A";
+            ctx.font = `700 15px ${FONT_SANS}`;
+            ctx.fillText(truncateCanvasText(ctx, s.playerName, playerColW - 16), colPlayerX, midY);
+
+            ctx.textAlign = "right";
+            ctx.fillStyle = "#475569";
+            ctx.font = `600 14px ${FONT_MONO}`;
+            resultsList.forEach((r, idx) => {
+              const ps = r.playerScores.find((p) => p.playerId === s.playerId);
+              const rx = colRoundsStartX + (idx + 1) * roundColW - 10;
+              ctx.fillText(String(ps ? ps.roundTotal : 0), rx, midY);
+            });
+
+            ctx.fillStyle = "#047857";
+            ctx.font = `800 16px ${FONT_MONO}`;
+            ctx.fillText(`${s.totalScore}`, colTotalRightX, midY);
+          });
+
+          ctx.restore();
+
+          // Outer border of table
+          drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, tableH, 12);
+          ctx.strokeStyle = "#CBD5E1";
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+
+          y += tableH + 34;
+
+          // 6. Round History Section
+          if (roundHistoryEntries.length > 0) {
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#0F172A";
+            ctx.font = `800 20px ${FONT_DISPLAY}`;
+            ctx.fillText("Round History", CONTENT_X, y + 14);
+
+            ctx.textAlign = "right";
+            ctx.fillStyle = "#64748B";
+            ctx.font = `600 13px ${FONT_MONO}`;
+            ctx.fillText(
+              `${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged`,
+              CONTENT_X + CONTENT_W,
+              y + 14
+            );
+            y += HISTORY_HEADER_H;
+
+            // Chosen Letters strip
+            if (chipRows.length > 0) {
+              ctx.textAlign = "left";
+              ctx.fillStyle = "#64748B";
+              ctx.font = `700 12px ${FONT_SANS}`;
+              ctx.fillText("CHOSEN LETTERS", CONTENT_X, y + 10);
+              y += 28;
+
+              chipRows.forEach((row) => {
+                row.forEach((chip) => {
+                  const cx = CONTENT_X + chip.x;
+                  drawRoundedRectPath(ctx, cx, y, chip.chipW, 32, 8);
+                  ctx.fillStyle = "#F8FAFC";
+                  ctx.fill();
+                  ctx.strokeStyle = "#CBD5E1";
+                  ctx.lineWidth = 1;
+                  ctx.stroke();
+
+                  ctx.textAlign = "left";
+                  ctx.fillStyle = "#64748B";
+                  ctx.font = `700 12px ${FONT_MONO}`;
+                  ctx.fillText(chip.rLabel, cx + 12, y + 16);
+
+                  ctx.fillStyle = "#065F46";
+                  ctx.font = `800 15px ${FONT_DISPLAY}`;
+                  ctx.fillText(
+                    truncateCanvasText(ctx, chip.letter, chip.chipW - 24 - chip.rW - 8),
+                    cx + 12 + chip.rW + 8,
+                    y + 16
+                  );
+                });
+                y += 40;
+              });
+              y += 16;
+            }
+
+            // Round breakdown cards
+            roundHistoryEntries.forEach((entry, rIdx) => {
+              const cardH = roundCardHeights[rIdx];
+              drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, cardH, 12);
+              ctx.fillStyle = "#F8FAFC";
+              ctx.fill();
+              ctx.strokeStyle = "#E2E8F0";
+              ctx.lineWidth = 1.2;
+              ctx.stroke();
+
+              // Round card top bar: Letter badge + Round title + Challenged count
+              ctx.font = `800 15px ${FONT_DISPLAY}`;
+              const letterW = Math.min(340, Math.ceil(ctx.measureText(entry.letter).width) + 24);
+              const badgeX = CONTENT_X + 18;
+              const badgeY = y + 12;
+              drawRoundedRectPath(ctx, badgeX, badgeY, Math.max(40, letterW), 28, 7);
+              ctx.fillStyle = "#047857";
+              ctx.fill();
+
+              ctx.textAlign = "center";
+              ctx.fillStyle = "#FFFFFF";
+              ctx.font = `800 14px ${FONT_DISPLAY}`;
+              ctx.fillText(
+                truncateCanvasText(ctx, entry.letter, Math.max(40, letterW) - 12),
+                badgeX + Math.max(40, letterW) / 2,
+                badgeY + 14
+              );
+
+              ctx.textAlign = "left";
+              ctx.fillStyle = "#0F172A";
+              ctx.font = `800 15px ${FONT_SANS}`;
+              ctx.fillText(`Round ${entry.roundNumber}`, badgeX + Math.max(40, letterW) + 12, badgeY + 14);
+
+              ctx.textAlign = "right";
+              ctx.fillStyle = entry.challenged.length > 0 ? "#B45309" : "#94A3B8";
+              ctx.font = `700 13px ${FONT_MONO}`;
+              ctx.fillText(
+                entry.challenged.length > 0 ? `${entry.challenged.length} challenged` : "No challenges",
+                CONTENT_X + CONTENT_W - 18,
+                badgeY + 14
+              );
+
+              // Player bars inside round card
+              let py = y + 54;
+              const barX = CONTENT_X + 18;
+              const barW = CONTENT_W - 36;
+
+              entry.sortedPlayers.forEach((ps) => {
+                ctx.textAlign = "left";
+                ctx.fillStyle = "#1E293B";
+                ctx.font = `700 14px ${FONT_SANS}`;
+                ctx.fillText(truncateCanvasText(ctx, ps.playerName, barW - 180), barX, py + 7);
+
+                ctx.textAlign = "right";
+                ctx.fillStyle = "#0F172A";
+                ctx.font = `800 14px ${FONT_MONO}`;
+                const ptsText = `${ps.roundTotal} pts`;
+                const ptsW = ctx.measureText(ptsText).width;
+                ctx.fillText(ptsText, barX + barW, py + 7);
+
+                ctx.fillStyle = "#64748B";
+                ctx.font = `600 12px ${FONT_MONO}`;
+                ctx.fillText(`${ps.uniqueCount}U · ${ps.sharedCount}S`, barX + barW - ptsW - 12, py + 7);
+
+                // Progress bar track
+                const trackY = py + 19;
+                drawRoundedRectPath(ctx, barX, trackY, barW, 7, 3.5);
+                ctx.fillStyle = "#E2E8F0";
+                ctx.fill();
+
+                const pct = Math.max(0, Math.min(1, ps.roundTotal / 50));
+                if (pct > 0) {
+                  drawRoundedRectPath(ctx, barX, trackY, Math.max(8, barW * pct), 7, 3.5);
+                  ctx.fillStyle = "#059669";
+                  ctx.fill();
+                }
+
+                py += 34;
+              });
+
+              // Challenged words list if any
+              if (entry.challenged.length > 0) {
+                py += 6;
+                ctx.strokeStyle = "#E2E8F0";
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(barX, py);
+                ctx.lineTo(barX + barW, py);
+                ctx.stroke();
+
+                py += 15;
+                ctx.textAlign = "left";
+                ctx.fillStyle = "#64748B";
+                ctx.font = `700 11px ${FONT_SANS}`;
+                ctx.fillText("CHALLENGED WORDS", barX, py);
+                py += 14;
+
+                entry.challenged.forEach((ch) => {
+                  const isRejected = ch.decision === "invalid" || ch.decision === "rejected";
+                  const isDuplicate = ch.decision === "duplicate";
+                  const isApproved = ch.decision === "valid" || ch.decision === "approved";
+                  const statusColor = isRejected ? "#B91C1C" : isDuplicate ? "#B45309" : isApproved ? "#047857" : "#B45309";
+                  const statusLabel = isRejected
+                    ? "Disapproved · +0"
+                    : isDuplicate
+                      ? "Match / Same · +5"
+                      : isApproved
+                        ? `Approved · +${ch.points}`
+                        : `Ruled · +${ch.points}`;
+
+                  drawRoundedRectPath(ctx, barX, py, barW, 48, 8);
+                  ctx.fillStyle = "#FFFFFF";
+                  ctx.fill();
+                  ctx.strokeStyle = "#E2E8F0";
+                  ctx.lineWidth = 1;
+                  ctx.stroke();
+
+                  // Word & Status row
+                  ctx.textAlign = "right";
+                  ctx.fillStyle = statusColor;
+                  ctx.font = `700 12px ${FONT_MONO}`;
+                  const statusW = ctx.measureText(statusLabel).width;
+                  ctx.fillText(statusLabel, barX + barW - 12, py + 15);
+
+                  ctx.textAlign = "left";
+                  ctx.fillStyle = isRejected ? "#94A3B8" : "#0F172A";
+                  ctx.font = `700 14px ${FONT_SANS}`;
+                  const wordDrawn = truncateCanvasText(ctx, ch.word, barW - statusW - 40);
+                  ctx.fillText(wordDrawn, barX + 12, py + 15);
+                  if (isRejected) {
+                    const ww = ctx.measureText(wordDrawn).width;
+                    ctx.strokeStyle = "#94A3B8";
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(barX + 12, py + 15);
+                    ctx.lineTo(barX + 12 + ww, py + 15);
+                    ctx.stroke();
+                  }
+
+                  // Metadata & reason row
+                  const metaLine = `${ch.playerName} · ${ch.categoryLabel}${ch.reason ? ` — ${ch.reason}` : ""}`;
+                  ctx.fillStyle = "#64748B";
+                  ctx.font = `500 12px ${FONT_SANS}`;
+                  ctx.fillText(truncateCanvasText(ctx, metaLine, barW - 24), barX + 12, py + 34);
+
+                  py += 56;
+                });
+              }
+
+              y += cardH + 14;
+            });
+
+            if (NO_CHALLENGES_NOTE_H > 0) {
+              ctx.textAlign = "left";
+              ctx.fillStyle = "#64748B";
+              ctx.font = `500 13px ${FONT_SANS}`;
+              ctx.fillText("No words were challenged during this match.", CONTENT_X, y + 10);
+              y += NO_CHALLENGES_NOTE_H;
+            }
+            y += 10;
+          }
+
+          // 7. Footer separator & metadata
+          const footerY = OUTER_PAD + CARD_H - FOOTER_H;
+          ctx.strokeStyle = "#E2E8F0";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(CONTENT_X, footerY);
+          ctx.lineTo(CONTENT_X + CONTENT_W, footerY);
+          ctx.stroke();
+
+          ctx.textAlign = "left";
+          ctx.fillStyle = "#64748B";
+          ctx.font = `600 13px ${FONT_SANS}`;
+          ctx.fillText("Name, Place, Animal, Thing · പേര്, സ്ഥലം, മൃഗം, പൂവ്, സാധനം", CONTENT_X, footerY + 24);
+
+          const dateLabel = new Date().toLocaleDateString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          });
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#94A3B8";
+          ctx.font = `600 12px ${FONT_MONO}`;
+          ctx.fillText(dateLabel, CONTENT_X + CONTENT_W, footerY + 24);
+
+          return canvas.toDataURL("image/png");
+        }
+
+        async function openPodiumShareModal() {
+          state.shareModalOpen = true;
+          state.shareImageBusy = true;
+          state.shareImageStatus = "";
+          render();
+
+          try {
+            const dataUrl = await generatePodiumScoreboardImage();
+            state.shareImageDataUrl = dataUrl;
+            state.shareImageBusy = false;
+            render();
+          } catch {
+            state.shareImageBusy = false;
+            state.shareImageStatus = "Could not render scoreboard image. Please try again.";
+            render();
+          }
+        }
+
+        function downloadPodiumScoreboardImage() {
+          if (!state.shareImageDataUrl) return;
+          const fileName = getExportFileName();
+          try {
+            const blob = dataUrlToBlob(state.shareImageDataUrl);
+            const url = blob ? URL.createObjectURL(blob) : state.shareImageDataUrl;
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            if (blob) {
+              setTimeout(() => URL.revokeObjectURL(url), 4000);
+            }
+            state.shareImageStatus = "Scoreboard PNG downloaded!";
+          } catch {
+            state.shareImageStatus = "Download failed. Try right-clicking or long-pressing the preview image to save.";
+          }
+          render();
+        }
+
+        async function nativeSharePodiumImage() {
+          if (!state.shareImageDataUrl) return;
+          const fileName = getExportFileName();
+          const data = buildPodiumData();
+          const shareText = `${data.headline} — Name, Place, Animal, Thing (${data.resultsList.length} ${data.resultsList.length === 1 ? "Round" : "Rounds"})`;
+          try {
+            const blob = dataUrlToBlob(state.shareImageDataUrl);
+            if (blob && typeof File !== "undefined" && navigator.share) {
+              const file = new File([blob], fileName, { type: "image/png" });
+              if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  title: "Name, Place, Animal, Thing — Scoreboard",
+                  text: shareText,
+                  files: [file],
+                });
+                state.shareImageStatus = "Shared scoreboard image!";
+                render();
+                return;
+              }
+            }
+            state.shareImageStatus = "Direct image sharing isn't supported in this browser — use Download PNG or Copy Image.";
+          } catch (err) {
+            if (err && err.name === "AbortError") {
+              state.shareImageStatus = "";
+            } else {
+              state.shareImageStatus = "Unable to open native share sheet — use Download PNG or Copy Image.";
+            }
+          }
+          render();
+        }
+
+        async function copyPodiumImageToClipboard() {
+          if (!state.shareImageDataUrl) return;
+          try {
+            const blob = dataUrlToBlob(state.shareImageDataUrl);
+            if (blob && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+              await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+              state.shareImageStatus = "Scoreboard image copied to clipboard!";
+            } else {
+              state.shareImageStatus = "Clipboard image copy isn't supported here — use Download PNG instead.";
+            }
+          } catch {
+            state.shareImageStatus = "Clipboard permission denied — use Download PNG to save the image.";
+          }
+          render();
+        }
+
+        function renderShareImageModal() {
+          if (state.phase !== "gameover" || !state.shareModalOpen) return "";
+          return `
+            <div id="share-image-modal" role="dialog" aria-modal="true" aria-labelledby="share-modal-title"
+              class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6 backdrop-blur-[1px]">
+              <div data-action="close-share-modal" class="absolute inset-0"></div>
+              <div class="relative z-10 flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-5 py-4">
+                  <div class="min-w-0">
+                    <p class="text-[11px] font-semibold text-emerald-700">Scoreboard &amp; Round History · PNG</p>
+                    <h2 id="share-modal-title" class="font-display text-lg font-extrabold text-slate-900 truncate">Share Scoreboard Image</h2>
+                  </div>
+                  <button type="button" data-action="close-share-modal" aria-label="Close export preview"
+                    class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+                    ✕
+                  </button>
+                </div>
+
+                <div class="flex-1 overflow-y-auto bg-slate-100/80 p-4 sm:p-5">
+                  ${state.shareImageBusy || !state.shareImageDataUrl
+                    ? `<div class="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+                         <div class="h-7 w-7 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent"></div>
+                         <p class="text-sm font-semibold text-slate-700">Rendering high-resolution scoreboard...</p>
+                       </div>`
+                    : `<div class="mx-auto max-w-xl">
+                         <img id="share-preview-img" src="${state.shareImageDataUrl}" alt="Final game scoreboard and round history image"
+                           class="w-full h-auto rounded-xl border border-slate-200 bg-white shadow-sm" />
+                       </div>`}
+                </div>
+
+                <div class="border-t border-slate-200 bg-white px-5 py-4 space-y-3">
+                  ${state.shareImageStatus
+                    ? `<p id="share-image-status" class="text-center text-xs font-semibold text-emerald-700">${escapeHtml(state.shareImageStatus)}</p>`
+                    : `<p class="text-center text-xs text-slate-500">Save or share this PNG card with everyone from your match.</p>`}
+                  <div class="flex flex-wrap items-center justify-center gap-2.5">
+                    <button type="button" data-action="download-podium-image" ${state.shareImageBusy || !state.shareImageDataUrl ? "disabled" : ""}
+                      class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50 whitespace-nowrap">
+                      <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v7.69l2.47-2.47a.75.75 0 111.06 1.06l-3.75 3.75a.75.75 0 01-1.06 0L5.72 10.03a.75.75 0 011.06-1.06l2.47 2.47V3.75A.75.75 0 0110 3zM3.5 14.75a.75.75 0 01.75.75v.75c0 .414.336.75.75.75h10a.75.75 0 00.75-.75v-.75a.75.75 0 011.5 0v.75A2.25 2.25 0 0115 18.5H5a2.25 2.25 0 01-2.25-2.25v-.75a.75.75 0 01.75-.75z" clip-rule="evenodd" />
+                      </svg>
+                      <span>Download PNG</span>
+                    </button>
+                    <button type="button" data-action="native-share-podium-image" ${state.shareImageBusy || !state.shareImageDataUrl ? "disabled" : ""}
+                      class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap">
+                      <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
+                        <path d="M13 4.5a2.5 2.5 0 11.702 1.737L6.97 9.604a2.518 2.518 0 010 .792l6.733 3.367a2.5 2.5 0 11-.671 1.341l-6.733-3.367a2.5 2.5 0 110-3.474l6.733-3.366A2.52 2.52 0 0113 4.5z" />
+                      </svg>
+                      <span>Share</span>
+                    </button>
+                    <button type="button" data-action="copy-podium-image" ${state.shareImageBusy || !state.shareImageDataUrl ? "disabled" : ""}
+                      class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap">
+                      <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
+                        <path d="M7 3.5A1.5 1.5 0 018.5 2h6A1.5 1.5 0 0116 3.5v8a1.5 1.5 0 01-1.5 1.5h-6A1.5 1.5 0 017 11.5v-8z" />
+                        <path d="M4 6.5A1.5 1.5 0 015.5 5H6v6.5A2.5 2.5 0 008.5 14H13v1.5A1.5 1.5 0 0111.5 17h-6A1.5 1.5 0 014 15.5v-9z" />
+                      </svg>
+                      <span>Copy Image</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>`;
+        }
+
+        function renderPodium() {
+          const {
+            isOnline,
+            resultsList,
+            standings,
+            winner,
+            headline,
+            slots,
+            roundHistoryEntries,
+            totalChallenged,
+          } = buildPodiumData();
 
           const historyBodyHtml = `
             <div>
@@ -3342,11 +4151,18 @@
                     <p class="text-xs font-semibold text-emerald-700">Match Complete · ${resultsList.length} ${resultsList.length === 1 ? "Round" : "Rounds"} Played</p>
                     <h1 class="mt-1 font-display text-3xl font-extrabold text-slate-900 sm:text-4xl">${escapeHtml(headline)}</h1>
                     ${winner ? `<p class="mt-2 text-sm text-slate-600 font-mono-tabular">${winner.totalScore} total points · ${winner.uniqueCount} unique · ${winner.sharedCount} shared</p>` : ""}
-                    <div class="mt-4 lg:hidden">
+                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2 lg:hidden">
                       <button type="button" data-action="open-history-drawer"
-                        class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100">
+                        class="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap">
                         <span>Game History</span>
                         <span class="font-mono-tabular text-[11px] text-slate-500">${resultsList.length}R · ${totalChallenged} challenged</span>
+                      </button>
+                      <button type="button" data-action="export-podium-image"
+                        class="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">
+                        <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                          <path d="M13 4.5a2.5 2.5 0 11.702 1.737L6.97 9.604a2.518 2.518 0 010 .792l6.733 3.367a2.5 2.5 0 11-.671 1.341l-6.733-3.367a2.5 2.5 0 110-3.474l6.733-3.366A2.52 2.52 0 0113 4.5z" />
+                        </svg>
+                        <span>Share Image</span>
                       </button>
                     </div>
                   </section>
@@ -3386,20 +4202,34 @@
                     </table>
                   </section>
 
-                  <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
-                    ${(!isOnline || state.room.hostId === myClientId) ? `<button type="button" data-action="play-again" class="rounded-lg bg-emerald-700 px-6 py-3.5 text-sm font-bold text-white hover:bg-emerald-800">Play Again</button>` : ""}
-                    <button type="button" data-action="reset-game" class="rounded-lg border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">New Game / Reset</button>
+                  <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
+                    ${(!isOnline || state.room.hostId === myClientId) ? `<button type="button" data-action="play-again" class="min-h-[44px] rounded-lg bg-emerald-700 px-6 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap">Play Again</button>` : ""}
+                    <button type="button" data-action="export-podium-image"
+                      class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-bold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">
+                      <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0l-2.97 2.97zM12 7a1 1 0 11-2 0 1 1 0 012 0z" clip-rule="evenodd" />
+                      </svg>
+                      <span>Share / Export Image</span>
+                    </button>
+                    <button type="button" data-action="reset-game" class="min-h-[44px] rounded-lg border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap">New Game / Reset</button>
                   </div>
                 </div>
 
                 <aside aria-label="Game History" id="podium-history-sidebar" class="hidden lg:block lg:col-span-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5 lg:sticky lg:top-6">
-                  <div class="flex items-baseline justify-between gap-3 border-b border-slate-100 pb-3.5">
+                  <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3.5">
                     <div>
                       <h2 class="font-display text-base font-extrabold text-slate-900">Game History</h2>
                       <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">
                         ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged
                       </p>
                     </div>
+                    <button type="button" data-action="export-podium-image" title="Export scoreboard & round history as PNG"
+                      class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 whitespace-nowrap">
+                      <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 text-emerald-700 shrink-0" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v7.69l2.47-2.47a.75.75 0 111.06 1.06l-3.75 3.75a.75.75 0 01-1.06 0L5.72 10.03a.75.75 0 011.06-1.06l2.47 2.47V3.75A.75.75 0 0110 3zM3.5 14.75a.75.75 0 01.75.75v.75c0 .414.336.75.75.75h10a.75.75 0 00.75-.75v-.75a.75.75 0 011.5 0v.75A2.25 2.25 0 0115 18.5H5a2.25 2.25 0 01-2.25-2.25v-.75a.75.75 0 01.75-.75z" clip-rule="evenodd" />
+                      </svg>
+                      <span>Export PNG</span>
+                    </button>
                   </div>
                   ${historyBodyHtml}
                 </aside>
@@ -3416,16 +4246,23 @@
                         ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged
                       </p>
                     </div>
-                    <button type="button" data-action="close-history-drawer" aria-label="Close Game History"
-                      class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900">
-                      ✕
-                    </button>
+                    <div class="flex items-center gap-2">
+                      <button type="button" data-action="export-podium-image"
+                        class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">
+                        <span>Export PNG</span>
+                      </button>
+                      <button type="button" data-action="close-history-drawer" aria-label="Close Game History"
+                        class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+                        ✕
+                      </button>
+                    </div>
                   </div>
                   <div class="flex-1 overflow-y-auto p-5 space-y-5">
                     ${historyBodyHtml}
                   </div>
                 </div>
-              </div>` : ""}`;
+              </div>` : ""}
+            ${renderShareImageModal()}`;
         }
 
         function renderRulesModal() {
@@ -3743,6 +4580,12 @@
           if (state.phase !== "gameover" && state.historyDrawerOpen) {
             state.historyDrawerOpen = false;
           }
+          if (state.phase !== "gameover" && state.shareModalOpen) {
+            state.shareModalOpen = false;
+            state.shareImageDataUrl = "";
+            state.shareImageStatus = "";
+            state.shareImageBusy = false;
+          }
           if (!isProtectedActivePhase(state.phase) && state.backConfirmOpen) {
             state.backConfirmOpen = false;
           }
@@ -3890,6 +4733,12 @@
               render();
               return;
             }
+            if (state.shareModalOpen) {
+              state.shareModalOpen = false;
+              state.shareImageStatus = "";
+              render();
+              return;
+            }
             if (state.historyDrawerOpen) {
               state.historyDrawerOpen = false;
               render();
@@ -4015,6 +4864,24 @@
           else if (act === "close-history-drawer") {
             state.historyDrawerOpen = false;
             render();
+          }
+          else if (act === "export-podium-image") {
+            state.historyDrawerOpen = false;
+            openPodiumShareModal();
+          }
+          else if (act === "close-share-modal") {
+            state.shareModalOpen = false;
+            state.shareImageStatus = "";
+            render();
+          }
+          else if (act === "download-podium-image") {
+            downloadPodiumScoreboardImage();
+          }
+          else if (act === "native-share-podium-image") {
+            nativeSharePodiumImage();
+          }
+          else if (act === "copy-podium-image") {
+            copyPodiumImageToClipboard();
           }
           else if (act === "back-confirm-stay") {
             state.backConfirmOpen = false;
@@ -4202,11 +5069,13 @@
               ? "rules"
               : state.reviewMenuOpen
                 ? "review-menu"
-                : state.historyDrawerOpen
-                  ? "history-drawer"
-                  : state.phase === "playing" && state.paused
-                    ? "pause"
-                    : "";
+                : state.shareModalOpen
+                  ? "share-image"
+                  : state.historyDrawerOpen
+                    ? "history-drawer"
+                    : state.phase === "playing" && state.paused
+                      ? "pause"
+                      : "";
           return {
             phase: state.phase,
             overlay,
@@ -4301,6 +5170,13 @@
           }
           if (state.reviewMenuOpen) {
             state.reviewMenuOpen = false;
+            currentHistoryKey = `${state.phase}|`;
+            render();
+            return;
+          }
+          if (state.shareModalOpen) {
+            state.shareModalOpen = false;
+            state.shareImageStatus = "";
             currentHistoryKey = `${state.phase}|`;
             render();
             return;
