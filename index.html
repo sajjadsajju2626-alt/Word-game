@@ -371,6 +371,17 @@
             .replace(/'/g, "&#39;");
         }
 
+        function formatRankOrdinal(rank) {
+          const n = Math.max(1, Math.floor(Number(rank) || 1));
+          const mod100 = n % 100;
+          if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+          const mod10 = n % 10;
+          if (mod10 === 1) return `${n}st`;
+          if (mod10 === 2) return `${n}nd`;
+          if (mod10 === 3) return `${n}rd`;
+          return `${n}th`;
+        }
+
         function createEmptyAnswers() {
           return { name: "", place: "", animal: "", plant: "", thing: "" };
         }
@@ -3215,7 +3226,7 @@
                     ${standings.map((s) => `
                       <div class="flex items-center justify-between gap-4 py-2.5 text-sm">
                         <div class="flex items-center gap-3 min-w-0">
-                          <span class="w-6 font-mono-tabular text-xs font-bold text-slate-500">#${s.rank}</span>
+                          <span class="w-8 font-mono-tabular text-xs font-bold ${s.rank === 1 ? "text-amber-700" : s.rank === 2 ? "text-slate-700" : s.rank === 3 ? "text-orange-700" : "text-slate-500"}">${formatRankOrdinal(s.rank)}</span>
                           <span class="truncate font-semibold text-slate-900">${escapeHtml(s.playerName)}</span>
                         </div>
                         <div class="flex items-center gap-4 text-xs text-slate-500 shrink-0 font-mono-tabular">
@@ -3649,27 +3660,51 @@
                 pedGrad.addColorStop(0.55, "#FBBF24");
                 pedGrad.addColorStop(1, "#F59E0B");
               } else if (isSilver) {
-                pedGrad.addColorStop(0, "#F1F5F9");
-                pedGrad.addColorStop(0.55, "#E2E8F0");
-                pedGrad.addColorStop(1, "#CBD5E1");
+                pedGrad.addColorStop(0, "#E2E8F0");
+                pedGrad.addColorStop(0.45, "#CBD5E1");
+                pedGrad.addColorStop(1, "#94A3B8");
               } else {
                 pedGrad.addColorStop(0, "#FED7AA");
                 pedGrad.addColorStop(0.55, "#FDBA74");
                 pedGrad.addColorStop(1, "#FB923C");
               }
 
+              ctx.save();
+              ctx.shadowColor = isGold
+                ? "rgba(180, 83, 9, 0.22)"
+                : isSilver
+                  ? "rgba(51, 65, 85, 0.24)"
+                  : "rgba(194, 65, 12, 0.2)";
+              ctx.shadowBlur = 14;
+              ctx.shadowOffsetY = 5;
               drawRoundedRectPath(ctx, sx, pedTopY, slotW, pedH, 12);
               ctx.fillStyle = pedGrad;
               ctx.fill();
-              ctx.strokeStyle = isGold ? "#D97706" : isSilver ? "#94A3B8" : "#EA580C";
-              ctx.lineWidth = 1.4;
+              ctx.restore();
+
+              // Crisp top specular metallic highlight on silver/gold/bronze steps
+              ctx.save();
+              drawRoundedRectPath(ctx, sx, pedTopY, slotW, pedH, 12);
+              ctx.clip();
+              ctx.strokeStyle = isSilver ? "rgba(255, 255, 255, 0.85)" : "rgba(255, 255, 255, 0.45)";
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(sx + 8, pedTopY + 1.5);
+              ctx.lineTo(sx + slotW - 8, pedTopY + 1.5);
+              ctx.stroke();
+              ctx.restore();
+
+              drawRoundedRectPath(ctx, sx, pedTopY, slotW, pedH, 12);
+              ctx.strokeStyle = isGold ? "#D97706" : isSilver ? "#64748B" : "#EA580C";
+              ctx.lineWidth = 1.5;
               ctx.stroke();
 
-              // Pedestal Rank numeral & Points
+              // Pedestal Ordinal Rank label & Points
+              const ordinalLabel = formatRankOrdinal(entry.rank);
               ctx.textAlign = "center";
               ctx.fillStyle = isGold ? "#451A03" : isSilver ? "#0F172A" : "#431407";
               ctx.font = `800 ${isGold ? 28 : isSilver ? 24 : 21}px ${FONT_DISPLAY}`;
-              ctx.fillText(`#${entry.rank}`, cx, pedTopY + (isGold ? 34 : isSilver ? 28 : 22));
+              ctx.fillText(ordinalLabel, cx, pedTopY + (isGold ? 34 : isSilver ? 28 : 22));
 
               ctx.font = `800 ${isGold ? 24 : 20}px ${FONT_MONO}`;
               ctx.fillText(`${entry.totalScore} pts`, cx, pedTopY + (isGold ? 72 : isSilver ? 60 : 46));
@@ -3691,27 +3726,52 @@
 
               // Circular Illustrated Avatar Medallion above player name
               const avatarR = isGold ? 34 : 28;
-              const avatarCy = pedTopY - 56 - avatarR;
+              const avatarCy = pedTopY - 62 - avatarR;
 
+              ctx.save();
               ctx.beginPath();
               ctx.arc(cx, avatarCy, avatarR, 0, Math.PI * 2);
-              ctx.fillStyle = isGold ? "#FEF3C7" : isSilver ? "#F1F5F9" : "#FFEDD5";
+              if (isSilver) {
+                const silverAvGrad = ctx.createLinearGradient(cx - avatarR, avatarCy - avatarR, cx + avatarR, avatarCy + avatarR);
+                silverAvGrad.addColorStop(0, "#F8FAFC");
+                silverAvGrad.addColorStop(0.5, "#E2E8F0");
+                silverAvGrad.addColorStop(1, "#CBD5E1");
+                ctx.fillStyle = silverAvGrad;
+              } else {
+                ctx.fillStyle = isGold ? "#FEF3C7" : "#FFEDD5";
+              }
               ctx.fill();
-              ctx.lineWidth = isGold ? 4 : 3;
-              ctx.strokeStyle = isGold ? "#F59E0B" : isSilver ? "#94A3B8" : "#FB923C";
+              ctx.lineWidth = isGold ? 4 : 3.5;
+              ctx.strokeStyle = isGold ? "#F59E0B" : isSilver ? "#64748B" : "#FB923C";
               ctx.stroke();
+              ctx.restore();
 
               // Avatar emoji
-              ctx.font = `${isGold ? 34 : 28}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+              ctx.font = `${isGold ? 32 : 26}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
               ctx.fillStyle = "#0F172A";
-              ctx.fillText(entry.avatar || "🦁", cx, avatarCy + 2);
+              ctx.fillText(entry.avatar || "🦁", cx, avatarCy + 1);
 
-              // Trophy above #1 or clean tier caption above #2 / #3
+              // Compact Ordinal Rank Badge seated at bottom of avatar medallion
+              const badgeW = 36;
+              const badgeH = 18;
+              const badgeX = cx - badgeW / 2;
+              const badgeY = avatarCy + avatarR - 9;
+              drawRoundedRectPath(ctx, badgeX, badgeY, badgeW, badgeH, 6);
+              ctx.fillStyle = isGold ? "#451A03" : isSilver ? "#334155" : "#7C2D12";
+              ctx.fill();
+              ctx.strokeStyle = isGold ? "#FBBF24" : isSilver ? "#CBD5E1" : "#FDBA74";
+              ctx.lineWidth = 1.2;
+              ctx.stroke();
+              ctx.fillStyle = isGold ? "#FDE68A" : isSilver ? "#F8FAFC" : "#FFEDD5";
+              ctx.font = `800 11px ${FONT_MONO}`;
+              ctx.fillText(ordinalLabel, cx, badgeY + badgeH / 2 + 0.5);
+
+              // Trophy above 1st or clean tier caption above 2nd / 3rd
               if (isGold) {
                 drawCanvasTrophy(ctx, cx, avatarCy - avatarR - 46);
               } else {
                 const caption = entry.rank === 1 ? "CO-WINNER" : entry.rank === 2 ? "RUNNER-UP" : "3RD PLACE";
-                ctx.fillStyle = entry.rank === 1 ? "#B45309" : isSilver ? "#64748B" : "#C2410C";
+                ctx.fillStyle = entry.rank === 1 ? "#B45309" : isSilver ? "#475569" : "#C2410C";
                 ctx.font = `700 11px ${FONT_MONO}`;
                 ctx.fillText(caption, cx, avatarCy - avatarR - 14);
               }
@@ -3790,9 +3850,9 @@
             const midY = ry + TABLE_ROW_H / 2;
 
             ctx.textAlign = "left";
-            ctx.fillStyle = s.rank === 1 ? "#B45309" : "#64748B";
+            ctx.fillStyle = s.rank === 1 ? "#B45309" : s.rank === 2 ? "#334155" : s.rank === 3 ? "#C2410C" : "#64748B";
             ctx.font = `700 14px ${FONT_MONO}`;
-            ctx.fillText(`#${s.rank}`, colRankX, midY);
+            ctx.fillText(formatRankOrdinal(s.rank), colRankX, midY);
 
             ctx.fillStyle = "#0F172A";
             ctx.font = `700 15px ${FONT_SANS}`;
@@ -3865,33 +3925,60 @@
             const sx = (W - totalW) / 2 + idx * (slotW + gap);
             const pedH = isGold ? 114 : isSilver ? 86 : 64;
             const topY = 472 - pedH;
-            const fill = isGold ? "#FBBF24" : isSilver ? "#E2E8F0" : "#FDBA74";
-            const stroke = isGold ? "#D97706" : isSilver ? "#94A3B8" : "#EA580C";
+            const fill = isGold ? "url(#goldPedGrad)" : isSilver ? "url(#silverPedGrad)" : "url(#bronzePedGrad)";
+            const stroke = isGold ? "#D97706" : isSilver ? "#64748B" : "#EA580C";
             const txtCol = isGold ? "#451A03" : isSilver ? "#0F172A" : "#431407";
+            const ordinalLabel = formatRankOrdinal(entry.rank);
             return `
               <g>
-                <circle cx="${sx + slotW / 2}" cy="${topY - 76}" r="${isGold ? 32 : 26}" fill="${isGold ? "#FEF3C7" : isSilver ? "#F1F5F9" : "#FFEDD5"}" stroke="${stroke}" stroke-width="3"></circle>
+                <circle cx="${sx + slotW / 2}" cy="${topY - 76}" r="${isGold ? 32 : 26}" fill="${isGold ? "#FEF3C7" : isSilver ? "url(#silverAvGrad)" : "#FFEDD5"}" stroke="${stroke}" stroke-width="3.5"></circle>
                 <text x="${sx + slotW / 2}" y="${topY - 68}" text-anchor="middle" font-size="${isGold ? 30 : 24}">${safe(entry.avatar || "🦁")}</text>
-                <text x="${sx + slotW / 2}" y="${topY - 26}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="#0F172A">${safe(entry.playerName.slice(0, 18))}</text>
+                <rect x="${sx + slotW / 2 - 18}" y="${topY - 76 + (isGold ? 23 : 17)}" width="36" height="18" rx="6" fill="${isGold ? "#451A03" : isSilver ? "#334155" : "#7C2D12"}" stroke="${isGold ? "#FBBF24" : isSilver ? "#CBD5E1" : "#FDBA74"}" stroke-width="1.2"></rect>
+                <text x="${sx + slotW / 2}" y="${topY - 76 + (isGold ? 35 : 29)}" text-anchor="middle" font-family="monospace" font-size="11" font-weight="800" fill="${isGold ? "#FDE68A" : isSilver ? "#F8FAFC" : "#FFEDD5"}">${ordinalLabel}</text>
+                <text x="${sx + slotW / 2}" y="${topY - 24}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="#0F172A">${safe(entry.playerName.slice(0, 18))}</text>
                 <rect x="${sx}" y="${topY}" width="${slotW}" height="${pedH}" rx="12" fill="${fill}" stroke="${stroke}" stroke-width="1.5"></rect>
-                <text x="${sx + slotW / 2}" y="${topY + 34}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="800" fill="${txtCol}">#${entry.rank}</text>
+                <line x1="${sx + 10}" y1="${topY + 2}" x2="${sx + slotW - 10}" y2="${topY + 2}" stroke="rgba(255,255,255,0.8)" stroke-width="2"></line>
+                <text x="${sx + slotW / 2}" y="${topY + 34}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="800" fill="${txtCol}">${ordinalLabel}</text>
                 <text x="${sx + slotW / 2}" y="${topY + Math.min(pedH - 14, 68)}" text-anchor="middle" font-family="monospace" font-size="20" font-weight="800" fill="${txtCol}">${entry.totalScore} pts</text>
               </g>`;
           }).join("");
 
           const rowsSvg = standings.map((s, idx) => {
             const ry = 554 + idx * rowH;
+            const rankColor = s.rank === 1 ? "#B45309" : s.rank === 2 ? "#334155" : s.rank === 3 ? "#C2410C" : "#64748B";
             return `
               <g>
                 <rect x="72" y="${ry}" width="936" height="${rowH}" fill="${s.rank === 1 ? "#FFFBEB" : idx % 2 === 1 ? "#F8FAFC" : "#FFFFFF"}"></rect>
                 <line x1="72" y1="${ry}" x2="1008" y2="${ry}" stroke="#E2E8F0"></line>
-                <text x="92" y="${ry + 28}" font-family="monospace" font-size="14" font-weight="700" fill="${s.rank === 1 ? "#B45309" : "#64748B"}">#${s.rank}</text>
+                <text x="92" y="${ry + 28}" font-family="monospace" font-size="14" font-weight="700" fill="${rankColor}">${formatRankOrdinal(s.rank)}</text>
                 <text x="160" y="${ry + 28}" font-family="system-ui, sans-serif" font-size="15" font-weight="700" fill="#0F172A">${safe(`${s.avatar || ""} ${s.playerName}`.trim())}</text>
                 <text x="988" y="${ry + 28}" text-anchor="end" font-family="monospace" font-size="16" font-weight="800" fill="#047857">${s.totalScore} pts</text>
               </g>`;
           }).join("");
 
           const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+            <defs>
+              <linearGradient id="goldPedGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#FCD34D"></stop>
+                <stop offset="55%" stop-color="#FBBF24"></stop>
+                <stop offset="100%" stop-color="#F59E0B"></stop>
+              </linearGradient>
+              <linearGradient id="silverPedGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#E2E8F0"></stop>
+                <stop offset="45%" stop-color="#CBD5E1"></stop>
+                <stop offset="100%" stop-color="#94A3B8"></stop>
+              </linearGradient>
+              <linearGradient id="silverAvGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#F8FAFC"></stop>
+                <stop offset="50%" stop-color="#E2E8F0"></stop>
+                <stop offset="100%" stop-color="#CBD5E1"></stop>
+              </linearGradient>
+              <linearGradient id="bronzePedGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#FED7AA"></stop>
+                <stop offset="55%" stop-color="#FDBA74"></stop>
+                <stop offset="100%" stop-color="#FB923C"></stop>
+              </linearGradient>
+            </defs>
             <rect width="${W}" height="${H}" fill="#F1F5F9"></rect>
             <rect x="36" y="36" width="${W - 72}" height="${H - 72}" rx="22" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"></rect>
             <rect x="72" y="72" width="936" height="184" rx="16" fill="#065F46"></rect>
@@ -4164,22 +4251,23 @@
             const tier = entry.tier || entry.rank;
             const isGold = tier === 1;
             const isSilver = tier === 2;
+            const ordinalLabel = formatRankOrdinal(entry.rank);
 
             const avatarRing = isGold
               ? "bg-gradient-to-br from-amber-100 to-yellow-200 ring-4 ring-amber-400 shadow-md"
               : isSilver
-                ? "bg-gradient-to-br from-slate-100 to-slate-200 ring-4 ring-slate-300 shadow-sm"
-                : "bg-gradient-to-br from-orange-100 to-amber-200 ring-4 ring-orange-300 shadow-sm";
+                ? "bg-gradient-to-br from-[#F8FAFC] via-[#E2E8F0] to-[#94A3B8] ring-4 ring-[#64748B]/80 shadow-[inset_0_1px_2px_rgba(255,255,255,0.95),0_4px_10px_-2px_rgba(51,65,85,0.3)]"
+                : "bg-gradient-to-br from-orange-100 to-amber-200 ring-4 ring-orange-400/90 shadow-sm";
 
             const avatarSize = isGold
               ? "h-16 w-16 sm:h-20 sm:w-20 text-3xl sm:text-4xl"
               : "h-14 w-14 sm:h-16 sm:w-16 text-2xl sm:text-3xl";
 
             const pedestalSurface = isGold
-              ? "bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 border-amber-500/80 text-amber-950 min-h-[142px] sm:min-h-[174px] py-3 sm:py-4 shadow-md"
+              ? "bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 border-amber-500/80 text-amber-950 min-h-[142px] sm:min-h-[174px] py-3 sm:py-4 shadow-[inset_0_1.5px_0_rgba(255,251,235,0.7),0_10px_20px_-8px_rgba(180,83,9,0.35)]"
               : isSilver
-                ? "bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 border-slate-300 text-slate-900 min-h-[114px] sm:min-h-[138px] py-2.5 sm:py-3.5 shadow-sm"
-                : "bg-gradient-to-b from-orange-200 via-orange-300 to-amber-400/90 border-orange-400/80 text-orange-950 min-h-[84px] sm:min-h-[100px] py-2 sm:py-2.5 shadow-sm";
+                ? "bg-gradient-to-b from-[#E2E8F0] via-[#CBD5E1] to-[#94A3B8] border-[#64748B]/75 text-slate-900 min-h-[114px] sm:min-h-[138px] py-2.5 sm:py-3.5 shadow-[inset_0_2px_0_rgba(255,255,255,0.9),0_10px_20px_-8px_rgba(51,65,85,0.38)]"
+                : "bg-gradient-to-b from-orange-200 via-orange-300 to-amber-400/90 border-orange-400/80 text-orange-950 min-h-[84px] sm:min-h-[100px] py-2 sm:py-2.5 shadow-[inset_0_1.5px_0_rgba(255,247,237,0.65),0_8px_16px_-8px_rgba(194,65,12,0.3)]";
 
             const tierCaption = entry.rank === 1
               ? (isGold ? "Champion" : "Co-Winner")
@@ -4191,19 +4279,19 @@
 
             return `
               <div class="podium-rise flex flex-col items-center min-w-0" style="animation-delay:${tierDelay}">
-                ${isGold ? `<div class="podium-trophy-bob mb-1.5">${trophySvg("h-10 w-10 sm:h-12 sm:w-12")}</div>` : `<div class="mb-2 h-5 sm:h-6 flex items-center text-[11px] font-bold tracking-wide ${entry.rank === 1 ? "text-amber-700" : isSilver ? "text-slate-500" : "text-orange-700"}">${tierCaption}</div>`}
+                ${isGold ? `<div class="podium-trophy-bob mb-1.5">${trophySvg("h-10 w-10 sm:h-12 sm:w-12")}</div>` : `<div class="mb-2 h-5 sm:h-6 flex items-center text-[11px] font-bold tracking-wide ${entry.rank === 1 ? "text-amber-700" : isSilver ? "text-slate-600" : "text-orange-700"}">${tierCaption}</div>`}
 
                 <div class="relative flex flex-col items-center">
                   <div class="flex items-center justify-center rounded-full ${avatarSize} ${avatarRing} select-none" aria-hidden="true">
                     <span>${escapeHtml(entry.avatar)}</span>
                   </div>
-                  <span class="-mt-2.5 inline-flex items-center justify-center rounded-md px-2 py-0.5 font-mono-tabular text-[10px] sm:text-[11px] font-extrabold shadow-xs ${
+                  <span class="-mt-2.5 inline-flex items-center justify-center rounded-md px-2 py-0.5 font-mono-tabular text-[10px] sm:text-[11px] font-extrabold shadow-sm ${
                     isGold
-                      ? "bg-amber-950 text-amber-200"
+                      ? "bg-amber-950 text-amber-200 ring-1 ring-amber-400/70"
                       : isSilver
-                        ? "bg-slate-700 text-white"
-                        : "bg-orange-900 text-orange-100"
-                  }">#${entry.rank}</span>
+                        ? "bg-gradient-to-b from-slate-600 to-slate-800 text-slate-50 ring-1 ring-slate-300/90"
+                        : "bg-orange-900 text-orange-100 ring-1 ring-orange-300/70"
+                  }">${ordinalLabel}</span>
                 </div>
 
                 <h2 class="mt-2 w-full truncate text-center font-display text-sm sm:text-lg font-extrabold text-slate-900 px-1" title="${escapeHtml(entry.playerName)}">
@@ -4214,7 +4302,7 @@
                 </p>
 
                 <div class="mt-2.5 flex w-full flex-col items-center justify-between rounded-t-xl border-x border-t px-2 sm:px-3 text-center ${pedestalSurface}">
-                  <span class="font-display ${isGold ? "text-2xl sm:text-4xl" : isSilver ? "text-xl sm:text-3xl" : "text-lg sm:text-2xl"} font-extrabold leading-none opacity-90">#${entry.rank}</span>
+                  <span class="font-display ${isGold ? "text-2xl sm:text-4xl" : isSilver ? "text-xl sm:text-3xl text-slate-900 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]" : "text-lg sm:text-2xl"} font-extrabold leading-none opacity-95">${ordinalLabel}</span>
                   <div class="mt-1.5">
                     <p class="font-mono-tabular ${isGold ? "text-base sm:text-2xl" : "text-sm sm:text-xl"} font-extrabold leading-tight">${entry.totalScore} <span class="text-[10px] sm:text-xs font-bold opacity-80">pts</span></p>
                     ${isGold ? `<p class="mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wide opacity-80">Winner</p>` : ""}
@@ -4393,8 +4481,8 @@
                         ${standings.map((s) => {
                           const pal = s.avatarPalette || { bg: "bg-slate-100", ring: "ring-slate-200" };
                           return `
-                          <tr class="${s.rank === 1 ? "bg-amber-50/45" : ""}">
-                            <td class="px-4 py-3 font-mono-tabular text-xs font-bold ${s.rank === 1 ? "text-amber-700" : "text-slate-500"}">#${s.rank}</td>
+                          <tr class="${s.rank === 1 ? "bg-amber-50/45" : s.rank === 2 ? "bg-slate-100/55" : ""}">
+                            <td class="px-4 py-3 font-mono-tabular text-xs font-bold whitespace-nowrap ${s.rank === 1 ? "text-amber-700" : s.rank === 2 ? "text-slate-700" : s.rank === 3 ? "text-orange-700" : "text-slate-500"}">${formatRankOrdinal(s.rank)}</td>
                             <td class="px-4 py-3 font-semibold text-slate-900">
                               <div class="flex items-center gap-2.5">
                                 <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${pal.bg} ring-1 ${pal.ring} text-base leading-none" aria-hidden="true">${escapeHtml(s.avatar)}</span>
