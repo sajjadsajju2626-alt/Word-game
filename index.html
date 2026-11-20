@@ -698,6 +698,7 @@
           reviewingPlayerId: "",
           reviewMessages: [],
           reviewChatDraft: "",
+          reviewMenuOpen: false,
           // Waiting Lobby entertainment state
           lobbyChatDraft: "",
           lobbyRiddleIndex: 0,
@@ -1764,6 +1765,7 @@
           state.reviewingPlayerId = "";
           state.reviewMessages = [];
           state.reviewChatDraft = "";
+          state.reviewMenuOpen = false;
           state.onlineError = firebaseInitError;
           state.phase = "title";
           render();
@@ -2521,31 +2523,66 @@
             return acc + CATEGORIES.filter((cat) => ps.cells[cat.id].appealDecision !== "auto").length;
           }, 0);
 
+          const menuOpen = Boolean(state.reviewMenuOpen);
+
           return `
-            <main class="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10 space-y-6">
-              <section class="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
-                <div class="flex items-center gap-4">
+            <main class="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-8 space-y-4 sm:space-y-6">
+              <section class="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                <div class="flex items-start gap-3.5 sm:items-center sm:gap-4 min-w-0">
                   <div class="${getLetterBadgeStyle(result.letter, "card")} shrink-0 items-center justify-center rounded-xl bg-amber-600 font-display font-extrabold text-white">${escapeHtml(result.letter)}</div>
-                  <div>
+                  <div class="min-w-0">
                     <p class="text-xs font-semibold text-amber-700">അപ്പീൽ &amp; റിവ്യൂ · Round ${result.roundNumber} of ${totalRounds}</p>
-                    <h1 class="font-display text-2xl font-extrabold text-slate-900">Appeal &amp; Review Answers</h1>
-                    <p class="mt-0.5 text-sm text-slate-600">
+                    <h1 class="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">Appeal &amp; Review Answers</h1>
+                    <p class="mt-0.5 text-xs sm:text-sm text-slate-600">
                       ${isAdmin
                         ? `Room Admin (${escapeHtml(adminName)}): Review answers for "${escapeHtml(result.letter)}" — use 5 pts (Match) for spelling or Malayalam/Manglish variations instead of 0 pts (Disapprove).`
                         : `Inspect answers for "${escapeHtml(result.letter)}". Only Room Admin (${escapeHtml(adminName)}) can change rulings — use Review Chat to explain or request a 5-pt match.`}
                     </p>
                   </div>
                 </div>
-                <div class="flex items-center gap-3 text-xs font-semibold text-slate-600 font-mono-tabular shrink-0">
-                  <span>${rulingCount} ${rulingCount === 1 ? "ruling" : "rulings"} applied</span>
-                  <span class="text-slate-300">·</span>
-                  <span>${roundMessages.length} ${roundMessages.length === 1 ? "message" : "messages"}</span>
+                <div class="flex flex-wrap items-center justify-between gap-2 sm:justify-end sm:gap-3 shrink-0">
+                  <div class="flex items-center gap-2.5 text-xs font-semibold text-slate-600 font-mono-tabular">
+                    <span>${rulingCount} ${rulingCount === 1 ? "ruling" : "rulings"}</span>
+                    <span class="text-slate-300">·</span>
+                    <span>${roundMessages.length} ${roundMessages.length === 1 ? "msg" : "msgs"}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button type="button" data-action="jump-review-chat"
+                      class="lg:hidden inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">
+                      <span>Chat (${roundMessages.length})</span>
+                      <span aria-hidden="true">↓</span>
+                    </button>
+                    <div id="review-top-menu" class="relative">
+                      <button id="review-menu-btn" type="button" data-action="toggle-review-menu"
+                        aria-haspopup="menu" aria-expanded="${menuOpen}" aria-label="Review options menu"
+                        class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900">
+                        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                          <path d="M3 5h14M3 10h14M3 15h14" />
+                        </svg>
+                      </button>
+                      ${menuOpen ? `
+                        <div role="menu" aria-labelledby="review-menu-btn"
+                          class="absolute right-0 mt-2 w-52 origin-top-right rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg z-30">
+                          <button type="button" role="menuitem" data-action="toggle-mute"
+                            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                            <span>Sound Effects</span>
+                            <span class="font-mono-tabular text-[11px] text-slate-500">${soundFx.muted ? "Muted" : "On"}</span>
+                          </button>
+                          <div class="my-1 border-t border-slate-100"></div>
+                          <button type="button" role="menuitem" data-action="reset-game"
+                            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50">
+                            <span>New Game / Reset</span>
+                            <span aria-hidden="true">↺</span>
+                          </button>
+                        </div>` : ""}
+                    </div>
+                  </div>
                 </div>
               </section>
 
               ${passAndPlayHumans.length > 1 ? `
-                <section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <div class="text-xs text-slate-600">
+                <section class="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                  <div class="text-xs text-slate-600 leading-relaxed">
                     <span class="font-bold text-slate-800">Acting as:</span>
                     Only <span class="font-semibold text-emerald-800">${escapeHtml(adminName)} (Admin)</span> can apply 10 pts (Valid), 5 pts (Match), or 0 pts (Disapprove) rulings. Use <span class="font-semibold text-amber-700">5 pts (Match)</span> for minor spelling or Malayalam/Manglish duplicates.
                   </div>
@@ -2557,10 +2594,10 @@
                         }">${escapeHtml(p.name)}${p.id === adminId ? " · Admin" : ""}</button>`).join("")}
                   </div>
                 </section>` : `
-                <section class="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-xs ${
+                <section class="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-xs ${
                   isAdmin ? "border-emerald-200 bg-emerald-50/70 text-emerald-900" : "border-amber-200 bg-amber-50/70 text-amber-900"
                 }">
-                  <p class="font-medium">
+                  <p class="font-medium leading-relaxed">
                     ${isAdmin
                       ? `<span class="font-bold">Room Admin Controls:</span> Use <span class="font-semibold text-amber-800">5 pts (Match)</span> to reduce matching words (minor spelling, transliteration, or Malayalam/Manglish variations) from 10 to 5 pts without disapproving to 0.`
                       : `<span class="font-bold">Read-Only Review:</span> Only Room Admin (${escapeHtml(adminName)}) can change scores. Use Review Chat to explain your word or ask Admin to mark a 5-pt match.`}
@@ -2569,12 +2606,12 @@
 
               ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
 
-              <div class="grid gap-6 lg:grid-cols-12 items-start">
+              <div class="grid gap-5 lg:gap-6 lg:grid-cols-12 items-start">
                 <!-- Answer Review Table & Controls -->
-                <div class="lg:col-span-8 min-w-0 space-y-5">
-                  <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-                    <table class="w-full min-w-[600px] border-collapse text-left text-sm">
-                      <thead>
+                <div class="lg:col-span-8 min-w-0 space-y-4 sm:space-y-5">
+                  <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:overflow-x-auto">
+                    <table class="block w-full border-collapse text-left text-sm md:table md:min-w-[600px]">
+                      <thead class="hidden md:table-header-group">
                         <tr class="border-b border-slate-200 bg-slate-50">
                           <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
                           ${result.playerScores.map((ps) => {
@@ -2592,25 +2629,35 @@
                           }).join("")}
                         </tr>
                       </thead>
-                      <tbody class="divide-y divide-slate-100">
+                      <tbody class="block divide-y divide-slate-200 md:table-row-group md:divide-y md:divide-slate-100">
                         ${CATEGORIES.map((cat) => {
                           const lbl = formatCatLabel(cat);
                           return `
-                            <tr class="hover:bg-slate-50/40">
-                              <td class="px-4 py-4 align-top font-semibold text-slate-800">
-                                <div>${escapeHtml(lbl.primary)}</div>
-                                ${lbl.secondary ? `<div class="text-xs font-normal text-slate-500">${escapeHtml(lbl.secondary)}</div>` : ""}
+                            <tr class="block p-3.5 space-y-2.5 hover:bg-slate-50/40 md:table-row md:p-0 md:space-y-0">
+                              <td class="block pb-0.5 align-top font-semibold text-slate-800 md:table-cell md:px-4 md:py-4">
+                                <div class="flex items-baseline justify-between gap-2 md:block">
+                                  <span>${escapeHtml(lbl.primary)}</span>
+                                  ${lbl.secondary ? `<span class="text-xs font-normal text-slate-500 md:block">${escapeHtml(lbl.secondary)}</span>` : ""}
+                                </div>
                               </td>
                               ${result.playerScores.map((ps) => {
                                 const c = ps.cells[cat.id];
                                 const hasWord = c.raw.trim().length > 0;
                                 const isValidNow = c.points > 0;
                                 const activeRuling = c.appealDecision || "auto";
+                                const isSelf = ps.playerId === reviewerId;
+                                const isRowAdmin = ps.playerId === adminId;
                                 const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
 
                                 return `
-                                  <td class="px-4 py-4 align-top ${ps.playerId === reviewerId ? "bg-slate-50/50" : ""}">
+                                  <td class="block rounded-lg border border-slate-200/80 p-3 align-top md:table-cell md:rounded-none md:border-0 md:px-4 md:py-4 ${isSelf ? "bg-slate-50/70 md:bg-slate-50/50" : "bg-white md:bg-transparent"}">
                                     <div class="space-y-2">
+                                      <div class="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100 md:hidden">
+                                        <span class="text-xs font-bold text-slate-800 truncate">
+                                          ${escapeHtml(ps.playerName)}${isRowAdmin ? ' <span class="text-[11px] font-semibold text-emerald-700">(Admin)</span>' : ""}${isSelf && !isRowAdmin ? ' <span class="text-[11px] font-semibold text-slate-500">(You)</span>' : ""}
+                                        </span>
+                                        <span class="font-mono-tabular text-[11px] font-bold text-emerald-700 shrink-0">${ps.roundTotal} pts</span>
+                                      </div>
                                       <div class="flex items-start justify-between gap-2">
                                         <div class="min-w-0">
                                           <p class="font-semibold break-words ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
@@ -2620,11 +2667,11 @@
                                       </div>
                                       ${hasWord ? (
                                         isAdmin ? `
-                                          <div class="flex flex-wrap items-center gap-1 pt-0.5" role="group" aria-label="Admin scoring for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                          <div class="flex flex-wrap items-center gap-1.5 pt-1" role="group" aria-label="Admin scoring for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
                                             <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
                                               aria-pressed="${activeRuling === "valid"}"
                                               title="Mark as unique valid word (10 pts)"
-                                              class="rounded-md border px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                                              class="rounded-md border px-2.5 py-1.5 text-xs sm:px-2 sm:py-1 sm:text-[11px] font-semibold whitespace-nowrap transition-colors ${
                                                 activeRuling === "valid"
                                                   ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
                                                   : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
@@ -2634,7 +2681,7 @@
                                             <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
                                               aria-pressed="${activeRuling === "duplicate"}"
                                               title="Same / matching word (spelling or Malayalam/Manglish variation) — reduces to 5 pts instead of 0"
-                                              class="rounded-md border px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                                              class="rounded-md border px-2.5 py-1.5 text-xs sm:px-2 sm:py-1 sm:text-[11px] font-semibold whitespace-nowrap transition-colors ${
                                                 activeRuling === "duplicate"
                                                   ? "border-amber-600 bg-amber-600 text-white shadow-sm"
                                                   : "border-amber-200 bg-amber-50/70 text-amber-800 hover:border-amber-400 hover:bg-amber-100"
@@ -2644,7 +2691,7 @@
                                             <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
                                               aria-pressed="${activeRuling === "invalid"}"
                                               title="Disapprove invalid or wrong-letter word (0 pts)"
-                                              class="rounded-md border px-2 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                                              class="rounded-md border px-2.5 py-1.5 text-xs sm:px-2 sm:py-1 sm:text-[11px] font-semibold whitespace-nowrap transition-colors ${
                                                 activeRuling === "invalid"
                                                   ? "border-red-600 bg-red-600 text-white shadow-sm"
                                                   : "border-slate-200 bg-slate-50 text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
@@ -2653,7 +2700,7 @@
                                             </button>
                                             ${activeRuling !== "auto" ? `
                                               <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
-                                                class="px-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
+                                                class="px-1.5 py-1 text-xs sm:text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
                                                 Reset
                                               </button>` : ""}
                                           </div>` : `
@@ -2670,23 +2717,22 @@
                     </table>
                   </section>
 
-                  <section class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                    <div class="text-xs text-slate-600 space-y-0.5">
+                  <section class="flex flex-col gap-3.5 rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                    <div class="text-xs text-slate-600 space-y-0.5 leading-relaxed">
                       <p class="font-semibold text-slate-800">Admin-Moderated Scoring · No Answer Editing</p>
                       <p>10 pts (Valid) unique word · 5 pts (Match) same word / spelling or Manglish variation · 0 pts (Disapprove) invalid or wrong letter</p>
                     </div>
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
-                      <button type="button" data-action="reset-game" class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap">New Game / Reset</button>
                       ${isAdmin
-                        ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap">Confirm Scores &amp; Continue →</button>`
+                        ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shadow-xs">Confirm Scores &amp; Continue →</button>`
                         : `<p class="text-sm font-medium text-slate-600">Waiting for Room Admin (${escapeHtml(adminName)}) to confirm...</p>`}
                     </div>
                   </section>
                 </div>
 
                 <!-- Review Chat / Appeals Message Box -->
-                <aside id="review-chat-panel" aria-label="Review Chat" class="lg:col-span-4 rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col lg:sticky lg:top-6 overflow-hidden">
-                  <div class="border-b border-slate-100 px-4 py-3.5 bg-slate-50/70">
+                <aside id="review-chat-panel" aria-label="Review Chat" class="scroll-mt-4 lg:col-span-4 rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col lg:sticky lg:top-6 overflow-hidden">
+                  <div class="border-b border-slate-100 px-4 py-3 bg-slate-50/70">
                     <div class="flex items-center justify-between gap-2">
                       <h2 class="font-display text-base font-extrabold text-slate-900">Review Chat</h2>
                       <span class="font-mono-tabular text-[11px] font-semibold text-slate-500">${roundMessages.length} ${roundMessages.length === 1 ? "msg" : "msgs"}</span>
@@ -2696,7 +2742,7 @@
                     </p>
                   </div>
 
-                  <div id="review-chat-list" class="p-4 space-y-2.5 max-h-[340px] lg:max-h-[420px] min-h-[180px] overflow-y-auto bg-white">
+                  <div id="review-chat-list" class="p-3.5 sm:p-4 space-y-2.5 max-h-[300px] lg:max-h-[420px] min-h-[160px] overflow-y-auto bg-white">
                     ${roundMessages.length === 0 ? `
                       <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3.5 py-6 text-center">
                         <p class="text-xs font-semibold text-slate-600">No appeal messages yet</p>
@@ -3330,6 +3376,10 @@
           const chatSelStart = preservedInputId ? activeEl.selectionStart : null;
           const chatSelEnd = preservedInputId ? activeEl.selectionEnd : null;
 
+          if (state.phase !== "appeal" && state.reviewMenuOpen) {
+            state.reviewMenuOpen = false;
+          }
+
           document.body.dataset.state = state.paused && state.phase === "playing" ? "paused" : state.phase;
           const root = document.getElementById("app");
           if (state.phase === "title") root.innerHTML = renderTitle();
@@ -3486,6 +3536,13 @@
 
         document.addEventListener("click", async (e) => {
           const btn = e.target.closest("[data-action]");
+          if (state.reviewMenuOpen && !e.target.closest("#review-top-menu")) {
+            state.reviewMenuOpen = false;
+            if (!btn) {
+              render();
+              return;
+            }
+          }
           if (!btn) return;
           const act = btn.dataset.action;
 
@@ -3546,7 +3603,18 @@
             startTimer();
             render();
           }
-          else if (act === "toggle-mute") { soundFx.toggleMute(); render(); }
+          else if (act === "toggle-review-menu") {
+            state.reviewMenuOpen = !state.reviewMenuOpen;
+            render();
+          }
+          else if (act === "jump-review-chat") {
+            document.getElementById("review-chat-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+          else if (act === "toggle-mute") {
+            soundFx.toggleMute();
+            state.reviewMenuOpen = false;
+            render();
+          }
           else if (act === "toggle-pause") { state.paused = !state.paused; render(); }
           else if (act === "restart-round") {
             state.paused = false;
