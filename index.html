@@ -167,6 +167,10 @@
         // 2. CONSTANTS, CATEGORIES & A-Z BILINGUAL-FRIENDLY WORD DICTIONARY
         // =====================================================================
         const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+        const BILINGUAL_ALPHABET = [
+          "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+          "K / Q", "L", "M", "N", "O", "P", "R", "X / S", "T", "U", "W / V", "Y", "Z",
+        ];
         const MALAYALAM_ALPHABET = [
           "അ / ഇ / ഉ / എ / ഒ",
           "ക / ഖ",
@@ -383,12 +387,24 @@
 
         function getActiveAlphabet(lang) {
           const effectiveLang = lang || state.language;
-          return effectiveLang === "malayalam" ? MALAYALAM_ALPHABET : ALPHABET;
+          if (effectiveLang === "malayalam") return MALAYALAM_ALPHABET;
+          if (effectiveLang === "bilingual") return BILINGUAL_ALPHABET;
+          return ALPHABET;
         }
 
         function getDefaultLetter(lang) {
           const effectiveLang = lang || state.language;
-          return effectiveLang === "malayalam" ? "ക / ഖ" : "K";
+          if (effectiveLang === "malayalam") return "ക / ഖ";
+          if (effectiveLang === "bilingual") return "K / Q";
+          return "K";
+        }
+
+        function getAcceptedLatinChars(targetLetter) {
+          const clean = normalizeTargetLetter(targetLetter);
+          if (clean.includes("/")) {
+            return clean.split("/").map((p) => p.trim().toUpperCase()).filter(Boolean);
+          }
+          return clean ? [clean.toUpperCase()] : [];
         }
 
         function getAcceptedMalayalamChars(targetLetter) {
@@ -473,9 +489,10 @@
             return getAcceptedMalayalamChars(cleanTarget).includes(leading);
           }
 
-          if (leading.toUpperCase() === cleanTarget) return true;
+          const acceptedLatin = getAcceptedLatinChars(cleanTarget);
+          if (acceptedLatin.includes(leading.toUpperCase())) return true;
           const ml = MALAYALAM_INITIAL_MAP[leading];
-          return Boolean(ml && ml.includes(cleanTarget));
+          return Boolean(ml && acceptedLatin.some((ch) => ml.includes(ch)));
         }
 
         function looksLikeGibberish(norm) {
@@ -495,6 +512,15 @@
             const merged = [];
             chars.forEach((ch) => {
               const items = (MALAYALAM_WORD_DICTIONARY[ch] || {})[catId] || [];
+              items.forEach((w) => merged.push(w));
+            });
+            return merged;
+          }
+          const latinChars = getAcceptedLatinChars(key);
+          if (latinChars.length > 1) {
+            const merged = [];
+            latinChars.forEach((ch) => {
+              const items = (WORD_DICTIONARY[ch] || {})[catId] || [];
               items.forEach((w) => merged.push(w));
             });
             return merged;
@@ -744,7 +770,7 @@
           totalRounds: 3,
           timerSeconds: 60,
           letterMode: "random",
-          manualLetter: "K",
+          manualLetter: "K / Q",
           soloName: "Player 1",
           botCount: 1,
           botDifficulty: "casual",
@@ -2297,10 +2323,10 @@
                           class="rounded-md px-2.5 py-2 text-xs font-semibold leading-tight ${state.letterMode === "manual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}">${state.language === "malayalam" ? "അക്ഷരം തിരഞ്ഞെടുക്കുക / Pick Letter" : "Pick A–Z"}</button>
                       </div>
                       ${state.letterMode === "manual" ? `
-                        <div class="${state.language === "malayalam" ? "flex flex-wrap gap-1.5" : "grid grid-cols-7 gap-1"} pt-1">
+                        <div class="${state.language !== "english" ? "flex flex-wrap gap-1.5" : "grid grid-cols-7 gap-1"} pt-1">
                           ${getActiveAlphabet(state.language).map((l) => `
                             <button type="button" data-action="set-manual-letter" data-letter="${escapeHtml(l)}"
-                              class="${state.language === "malayalam" ? "min-h-8 px-2.5 py-1 text-xs sm:text-sm whitespace-nowrap" : "h-8 text-xs"} rounded-md font-display font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${escapeHtml(l)}</button>`).join("")}
+                              class="${state.language !== "english" ? "min-h-8 min-w-[2.25rem] px-2.5 py-1 text-xs sm:text-sm whitespace-nowrap" : "h-8 text-xs"} rounded-md font-display font-bold ${state.manualLetter === l ? "bg-emerald-700 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}">${escapeHtml(l)}</button>`).join("")}
                         </div>` : ""}
                     </div>
 
@@ -3210,10 +3236,10 @@
                     return `
                     <div>
                       <span class="block text-xs font-semibold text-slate-600">${roomLang === "malayalam" ? "അടുത്ത അക്ഷരം തിരഞ്ഞെടുക്കുക · Pick Next Letter" : "Pick Next Round Letter"}</span>
-                      <div class="mt-2 ${roomLang === "malayalam" ? "flex flex-wrap gap-1.5" : "grid grid-cols-7 gap-1"}">
+                      <div class="mt-2 ${roomLang !== "english" ? "flex flex-wrap gap-1.5" : "grid grid-cols-7 gap-1"}">
                         ${nextAlphabet.map((l) => `
                           <button type="button" data-action="set-manual-letter" data-letter="${escapeHtml(l)}"
-                            class="${roomLang === "malayalam" ? "min-h-7 px-2.5 py-1 text-xs sm:text-sm whitespace-nowrap" : "h-7 text-xs"} rounded font-display font-bold ${selectedNext === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${escapeHtml(l)}</button>`).join("")}
+                            class="${roomLang !== "english" ? "min-h-7 min-w-[2.1rem] px-2.5 py-1 text-xs sm:text-sm whitespace-nowrap" : "h-7 text-xs"} rounded font-display font-bold ${selectedNext === l ? "bg-emerald-700 text-white" : usedLetters.includes(l) ? "bg-slate-100 text-slate-400" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}">${escapeHtml(l)}</button>`).join("")}
                       </div>
                     </div>`;
                   })() : ""}
@@ -3382,8 +3408,18 @@
           return str.slice(0, lo) + ellipsis;
         }
 
+        function isValidImageDataUrl(url) {
+          if (typeof url !== "string" || url.length < 180) return false;
+          return url.startsWith("data:image/png;base64,") || url.startsWith("data:image/svg+xml");
+        }
+
         function dataUrlToBlob(dataUrl) {
-          const parts = String(dataUrl || "").split(",");
+          const str = String(dataUrl || "");
+          if (str.startsWith("data:image/svg+xml;charset=utf-8,")) {
+            const svgText = decodeURIComponent(str.slice("data:image/svg+xml;charset=utf-8,".length));
+            return new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+          }
+          const parts = str.split(",");
           if (parts.length < 2) return null;
           const mimeMatch = parts[0].match(/:(.*?);/);
           const mime = mimeMatch ? mimeMatch[1] : "image/png";
@@ -3395,25 +3431,72 @@
           return new Blob([bytes], { type: mime });
         }
 
-        function getExportFileName() {
+        function getExportFileName(isSvg = false) {
           const now = new Date();
           const pad = (n) => String(n).padStart(2, "0");
           const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-          return `name-place-animal-thing-scoreboard-${stamp}.png`;
+          return `name-place-animal-thing-scoreboard-${stamp}.${isSvg ? "svg" : "png"}`;
         }
 
-        async function generatePodiumScoreboardImage() {
-          if (document.fonts && document.fonts.ready) {
-            try {
-              await Promise.race([
-                document.fonts.ready,
-                new Promise((resolve) => setTimeout(resolve, 600)),
-              ]);
-            } catch {}
-          }
+        function drawCanvasTrophy(ctx, cx, topY) {
+          ctx.save();
+          ctx.translate(cx, topY);
+          // Cup handles
+          ctx.strokeStyle = "#D97706";
+          ctx.lineWidth = 3.2;
+          ctx.beginPath();
+          ctx.arc(-13, 13, 6.5, Math.PI * 0.55, Math.PI * 1.5);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(13, 13, 6.5, -Math.PI * 0.5, Math.PI * 0.45);
+          ctx.stroke();
 
-          const data = buildPodiumData();
-          const { resultsList, standings, winner, headline, slots, roundHistoryEntries, totalChallenged } = data;
+          // Cup body
+          const cupGrad = ctx.createLinearGradient(-12, 4, 12, 26);
+          cupGrad.addColorStop(0, "#FEF08A");
+          cupGrad.addColorStop(0.5, "#F59E0B");
+          cupGrad.addColorStop(1, "#B45309");
+          ctx.fillStyle = cupGrad;
+          ctx.strokeStyle = "#B45309";
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(-12, 4);
+          ctx.lineTo(12, 4);
+          ctx.lineTo(11, 15);
+          ctx.quadraticCurveTo(10, 26, 0, 27);
+          ctx.quadraticCurveTo(-10, 26, -11, 15);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Stem & Base
+          ctx.fillStyle = "#D97706";
+          ctx.fillRect(-3, 26, 6, 7);
+          ctx.fillStyle = "#92400E";
+          drawRoundedRectPath(ctx, -10, 32, 20, 4.5, 2);
+          ctx.fill();
+          ctx.fillStyle = "#78350F";
+          drawRoundedRectPath(ctx, -13, 36, 26, 4.5, 2);
+          ctx.fill();
+
+          // Star highlight on cup
+          ctx.fillStyle = "#FFFBEB";
+          ctx.beginPath();
+          for (let i = 0; i < 10; i++) {
+            const r = i % 2 === 0 ? 4.8 : 2.1;
+            const a = (i * Math.PI) / 5 - Math.PI / 2;
+            const px = Math.cos(a) * r;
+            const py = 14 + Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+
+        function renderScoreboardCanvas(data, dpr) {
+          const { resultsList, standings, winner, headline, slots } = data;
 
           const W = 1080;
           const OUTER_PAD = 36;
@@ -3427,84 +3510,36 @@
           const FONT_SANS = '"Plus Jakarta Sans", "Noto Sans Malayalam", system-ui, sans-serif';
           const FONT_MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, monospace';
 
-          // Scratch context for measuring wrapped letter chips accurately
-          const measureCanvas = document.createElement("canvas");
-          const mctx = measureCanvas.getContext("2d");
-
-          // Pre-layout Chosen Letters chips to get exact row count
-          const chipRows = [];
-          if (roundHistoryEntries.length > 0) {
-            let curRow = [];
-            let curX = 0;
-            const chipGap = 10;
-            roundHistoryEntries.forEach((entry) => {
-              mctx.font = `700 13px ${FONT_MONO}`;
-              const rLabel = `R${entry.roundNumber}`;
-              const rW = mctx.measureText(rLabel).width;
-              mctx.font = `800 15px ${FONT_DISPLAY}`;
-              const lW = mctx.measureText(entry.letter).width;
-              const chipW = Math.min(CONTENT_W, Math.ceil(14 + rW + 8 + lW + 14));
-              if (curRow.length > 0 && curX + chipGap + chipW > CONTENT_W) {
-                chipRows.push(curRow);
-                curRow = [];
-                curX = 0;
-              }
-              curRow.push({ rLabel, letter: entry.letter, rW, chipW, x: curX });
-              curX += chipW + chipGap;
-            });
-            if (curRow.length > 0) chipRows.push(curRow);
-          }
-
-          // Compute exact deterministic canvas height
-          const HEADER_H = 196;
-          const PODIUM_H = slots.length > 0 ? 156 : 0;
+          // Compact deterministic height — Header + 3-Tier Podium + Final Scoreboard + Footer (NO Round History)
+          const HEADER_H = 188;
+          const PODIUM_STAGE_H = slots.length > 0 ? 316 : 0;
           const TABLE_HEADER_H = 44;
-          const TABLE_ROW_H = 46;
+          const TABLE_ROW_H = 48;
           const TABLE_SECTION_H = 38 + TABLE_HEADER_H + Math.max(1, standings.length) * TABLE_ROW_H;
-          const LETTERS_SECTION_H = chipRows.length > 0 ? 28 + chipRows.length * 40 : 0;
-
-          const roundCardHeights = roundHistoryEntries.map((entry) => {
-            const topH = 48;
-            const playersH = Math.max(1, entry.sortedPlayers.length) * 34 + 6;
-            const challengedH = entry.challenged.length > 0
-              ? 28 + entry.challenged.length * 56 + 6
-              : 0;
-            return topH + playersH + challengedH + 14;
-          });
-          const ROUNDS_TOTAL_H = roundCardHeights.reduce((sum, h) => sum + h, 0) + Math.max(0, roundCardHeights.length - 1) * 14;
-          const NO_CHALLENGES_NOTE_H = totalChallenged === 0 && roundHistoryEntries.length > 0 ? 28 : 0;
-          const HISTORY_HEADER_H = 38;
           const FOOTER_H = 46;
 
           let totalInnerH = INNER_PAD;
-          totalInnerH += HEADER_H + 28;
-          if (PODIUM_H > 0) totalInnerH += PODIUM_H + 30;
-          totalInnerH += TABLE_SECTION_H + 34;
-          if (roundHistoryEntries.length > 0) {
-            totalInnerH += HISTORY_HEADER_H;
-            if (LETTERS_SECTION_H > 0) totalInnerH += LETTERS_SECTION_H + 16;
-            totalInnerH += ROUNDS_TOTAL_H;
-            if (NO_CHALLENGES_NOTE_H > 0) totalInnerH += NO_CHALLENGES_NOTE_H;
-            totalInnerH += 22;
-          }
-          totalInnerH += FOOTER_H + 20;
+          totalInnerH += HEADER_H + 26;
+          if (PODIUM_STAGE_H > 0) totalInnerH += PODIUM_STAGE_H + 30;
+          totalInnerH += TABLE_SECTION_H + 26;
+          totalInnerH += FOOTER_H + 16;
 
           const CARD_H = Math.ceil(totalInnerH);
           const H = CARD_H + OUTER_PAD * 2;
-          const dpr = 2;
 
           const canvas = document.createElement("canvas");
-          canvas.width = W * dpr;
-          canvas.height = H * dpr;
+          canvas.width = Math.round(W * dpr);
+          canvas.height = Math.round(H * dpr);
           const ctx = canvas.getContext("2d");
+          if (!ctx) return "";
           ctx.scale(dpr, dpr);
           ctx.textBaseline = "middle";
 
-          // 1. Soft background canvas
+          // 1. Clean neutral background
           ctx.fillStyle = "#F1F5F9";
           ctx.fillRect(0, 0, W, H);
 
-          // 2. Main white sheet card with subtle elevation
+          // 2. Main white card with soft elevation
           ctx.save();
           ctx.shadowColor = "rgba(15, 23, 42, 0.08)";
           ctx.shadowBlur = 24;
@@ -3529,7 +3564,6 @@
           ctx.fillStyle = bannerGrad;
           ctx.fill();
 
-          // Subtle geometric decorative circles inside banner (clipped cleanly)
           ctx.save();
           drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, HEADER_H, 16);
           ctx.clip();
@@ -3542,7 +3576,6 @@
           ctx.fill();
           ctx.restore();
 
-          // Top brand row inside banner
           ctx.fillStyle = "#A7F3D0";
           ctx.font = `600 14px ${FONT_SANS}`;
           ctx.textAlign = "left";
@@ -3551,89 +3584,144 @@
           ctx.fillStyle = "#D1FAE5";
           ctx.font = `600 13px ${FONT_MONO}`;
           ctx.textAlign = "right";
-          const roundsMeta = `${resultsList.length} ${resultsList.length === 1 ? "ROUND" : "ROUNDS"} PLAYED · ${totalChallenged} CHALLENGED`;
+          const roundsMeta = `${resultsList.length} ${resultsList.length === 1 ? "ROUND" : "ROUNDS"} PLAYED`;
           ctx.fillText(roundsMeta, CONTENT_X + CONTENT_W - 28, y + 32);
 
-          // App title line
           ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
           ctx.font = `700 16px ${FONT_SANS}`;
           ctx.textAlign = "left";
-          ctx.fillText("Name, Place, Animal, Thing", CONTENT_X + 28, y + 60);
+          ctx.fillText("Name, Place, Animal, Thing", CONTENT_X + 28, y + 58);
 
-          // Winner Headline (centerpiece)
           ctx.fillStyle = "#FFFFFF";
           ctx.font = `800 38px ${FONT_DISPLAY}`;
           ctx.textAlign = "left";
-          ctx.fillText(truncateCanvasText(ctx, headline, CONTENT_W - 56), CONTENT_X + 28, y + 114);
+          ctx.fillText(truncateCanvasText(ctx, headline, CONTENT_W - 56), CONTENT_X + 28, y + 110);
 
-          // Winner stats line
           if (winner) {
             ctx.fillStyle = "#FDE68A";
             ctx.font = `700 16px ${FONT_MONO}`;
             const statLine = `${winner.totalScore} total points  ·  ${winner.uniqueCount} unique  ·  ${winner.sharedCount} shared`;
-            ctx.fillText(statLine, CONTENT_X + 28, y + 158);
+            ctx.fillText(statLine, CONTENT_X + 28, y + 152);
           }
 
-          y += HEADER_H + 28;
+          y += HEADER_H + 26;
 
-          // 4. Podium Top 3 Tiered Cards (Gold #1, Silver #2, Bronze #3)
+          // 4. Stepped 3-Tier Victory Podium Stage (Gold #1, Silver #2, Bronze #3)
           if (slots.length > 0) {
-            const gap = 18;
+            const stageBg = ctx.createLinearGradient(CONTENT_X, y, CONTENT_X, y + PODIUM_STAGE_H);
+            stageBg.addColorStop(0, "#FFFBEB");
+            stageBg.addColorStop(0.5, "#FFFFFF");
+            stageBg.addColorStop(1, "#F8FAFC");
+            drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, PODIUM_STAGE_H, 16);
+            ctx.fillStyle = stageBg;
+            ctx.fill();
+            ctx.strokeStyle = "#E2E8F0";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            const stageBottomY = y + PODIUM_STAGE_H - 12;
+            const gap = 22;
             const slotCount = slots.length;
-            const slotW = slotCount === 1 ? 360 : (CONTENT_W - gap * (slotCount - 1)) / slotCount;
-            const startX = slotCount === 1 ? CONTENT_X + (CONTENT_W - slotW) / 2 : CONTENT_X;
+            const stagePadX = 34;
+            const usableW = CONTENT_W - stagePadX * 2;
+            const slotW = slotCount === 1
+              ? Math.min(340, usableW)
+              : slotCount === 2
+                ? Math.min(300, (usableW - gap) / 2)
+                : (usableW - gap * (slotCount - 1)) / slotCount;
+            const totalSlotsW = slotW * slotCount + gap * (slotCount - 1);
+            const startX = CONTENT_X + (CONTENT_W - totalSlotsW) / 2;
 
             slots.forEach((entry, idx) => {
               const tier = entry.tier || entry.rank;
-              const isFirst = tier === 1 || entry.rank === 1;
-              const isThird = tier === 3;
+              const isGold = tier === 1;
+              const isSilver = tier === 2;
               const sx = startX + idx * (slotW + gap);
-              const topOffset = isFirst ? 0 : isThird ? 20 : 12;
-              const cardTop = y + topOffset;
-              const cardHeight = PODIUM_H - topOffset;
+              const cx = sx + slotW / 2;
 
-              const bgFill = isFirst ? "#FFFBEB" : isThird ? "#FFF7ED" : "#F8FAFC";
-              const borderStroke = isFirst ? "#F59E0B" : isThird ? "#FB923C" : "#CBD5E1";
-              const rankTextCol = isFirst ? "#B45309" : isThird ? "#C2410C" : "#475569";
+              const pedH = isGold ? 116 : isSilver ? 88 : 66;
+              const pedTopY = stageBottomY - pedH;
 
-              drawRoundedRectPath(ctx, sx, cardTop, slotW, cardHeight, 14);
-              ctx.fillStyle = bgFill;
+              // Draw stepped metallic pedestal block
+              const pedGrad = ctx.createLinearGradient(sx, pedTopY, sx, stageBottomY);
+              if (isGold) {
+                pedGrad.addColorStop(0, "#FCD34D");
+                pedGrad.addColorStop(0.55, "#FBBF24");
+                pedGrad.addColorStop(1, "#F59E0B");
+              } else if (isSilver) {
+                pedGrad.addColorStop(0, "#F1F5F9");
+                pedGrad.addColorStop(0.55, "#E2E8F0");
+                pedGrad.addColorStop(1, "#CBD5E1");
+              } else {
+                pedGrad.addColorStop(0, "#FED7AA");
+                pedGrad.addColorStop(0.55, "#FDBA74");
+                pedGrad.addColorStop(1, "#FB923C");
+              }
+
+              drawRoundedRectPath(ctx, sx, pedTopY, slotW, pedH, 12);
+              ctx.fillStyle = pedGrad;
               ctx.fill();
-              ctx.strokeStyle = borderStroke;
-              ctx.lineWidth = isFirst ? 2.4 : 1.5;
+              ctx.strokeStyle = isGold ? "#D97706" : isSilver ? "#94A3B8" : "#EA580C";
+              ctx.lineWidth = 1.4;
               ctx.stroke();
 
-              const cx = sx + slotW / 2;
+              // Pedestal Rank numeral & Points
               ctx.textAlign = "center";
+              ctx.fillStyle = isGold ? "#451A03" : isSilver ? "#0F172A" : "#431407";
+              ctx.font = `800 ${isGold ? 28 : isSilver ? 24 : 21}px ${FONT_DISPLAY}`;
+              ctx.fillText(`#${entry.rank}`, cx, pedTopY + (isGold ? 34 : isSilver ? 28 : 22));
 
-              // Rank & avatar line
-              ctx.fillStyle = rankTextCol;
-              ctx.font = `700 13px ${FONT_MONO}`;
-              const rankBadge = isFirst
-                ? `🏆 RANK #${entry.rank}`
-                : tier === 2
-                  ? `🥈 RANK #${entry.rank}`
-                  : `🥉 RANK #${entry.rank}`;
-              ctx.fillText(rankBadge, cx, cardTop + 24);
+              ctx.font = `800 ${isGold ? 24 : 20}px ${FONT_MONO}`;
+              ctx.fillText(`${entry.totalScore} pts`, cx, pedTopY + (isGold ? 72 : isSilver ? 60 : 46));
 
-              // Player name with avatar
-              ctx.fillStyle = "#0F172A";
-              ctx.font = `800 ${isFirst ? 21 : 18}px ${FONT_DISPLAY}`;
-              const displayName = `${entry.avatar || ""} ${entry.playerName}`.trim();
-              ctx.fillText(truncateCanvasText(ctx, displayName, slotW - 24), cx, cardTop + 56);
+              if (isGold) {
+                ctx.fillStyle = "rgba(69, 26, 3, 0.78)";
+                ctx.font = `700 12px ${FONT_SANS}`;
+                ctx.fillText("WINNER", cx, pedTopY + 98);
+              }
 
-              // Score
-              ctx.fillStyle = "#047857";
-              ctx.font = `800 ${isFirst ? 30 : 25}px ${FONT_MONO}`;
-              ctx.fillText(`${entry.totalScore} pts`, cx, cardTop + (isFirst ? 98 : 90));
-
-              // Unique / shared breakdown
+              // Player Name & unique/shared stats above pedestal
               ctx.fillStyle = "#64748B";
               ctx.font = `600 12px ${FONT_MONO}`;
-              ctx.fillText(`${entry.uniqueCount} unique · ${entry.sharedCount} shared`, cx, cardTop + cardHeight - 20);
+              ctx.fillText(`${entry.uniqueCount}U · ${entry.sharedCount}S`, cx, pedTopY - 14);
+
+              ctx.fillStyle = "#0F172A";
+              ctx.font = `800 ${isGold ? 19 : 17}px ${FONT_DISPLAY}`;
+              ctx.fillText(truncateCanvasText(ctx, entry.playerName, slotW - 14), cx, pedTopY - 36);
+
+              // Circular Illustrated Avatar Medallion above player name
+              const avatarR = isGold ? 34 : 28;
+              const avatarCy = pedTopY - 56 - avatarR;
+
+              ctx.beginPath();
+              ctx.arc(cx, avatarCy, avatarR, 0, Math.PI * 2);
+              ctx.fillStyle = isGold ? "#FEF3C7" : isSilver ? "#F1F5F9" : "#FFEDD5";
+              ctx.fill();
+              ctx.lineWidth = isGold ? 4 : 3;
+              ctx.strokeStyle = isGold ? "#F59E0B" : isSilver ? "#94A3B8" : "#FB923C";
+              ctx.stroke();
+
+              // Avatar emoji
+              ctx.font = `${isGold ? 34 : 28}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+              ctx.fillStyle = "#0F172A";
+              ctx.fillText(entry.avatar || "🦁", cx, avatarCy + 2);
+
+              // Trophy above #1 or clean tier caption above #2 / #3
+              if (isGold) {
+                drawCanvasTrophy(ctx, cx, avatarCy - avatarR - 46);
+              } else {
+                const caption = entry.rank === 1 ? "CO-WINNER" : entry.rank === 2 ? "RUNNER-UP" : "3RD PLACE";
+                ctx.fillStyle = entry.rank === 1 ? "#B45309" : isSilver ? "#64748B" : "#C2410C";
+                ctx.font = `700 11px ${FONT_MONO}`;
+                ctx.fillText(caption, cx, avatarCy - avatarR - 14);
+              }
             });
 
-            y += PODIUM_H + 30;
+            // Stage floor bar
+            ctx.fillStyle = "#CBD5E1";
+            ctx.fillRect(CONTENT_X + 20, stageBottomY, CONTENT_W - 40, 4);
+
+            y += PODIUM_STAGE_H + 30;
           }
 
           // 5. Final Scoreboard Table
@@ -3654,14 +3742,13 @@
           drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, tableH, 12);
           ctx.clip();
 
-          // Table header background
           ctx.fillStyle = "#F1F5F9";
           ctx.fillRect(CONTENT_X, y, CONTENT_W, TABLE_HEADER_H);
 
           const rankColW = 72;
           const totalColW = 104;
           const numRounds = resultsList.length;
-          const maxRoundAreaW = Math.min(numRounds * 220, Math.floor(CONTENT_W * 0.6));
+          const maxRoundAreaW = Math.min(numRounds * 220, Math.floor(CONTENT_W * 0.58));
           const roundColW = numRounds > 0 ? Math.floor(maxRoundAreaW / numRounds) : 0;
           const playerColW = CONTENT_W - rankColW - totalColW - roundColW * numRounds;
 
@@ -3670,7 +3757,6 @@
           const colRoundsStartX = colPlayerX + playerColW;
           const colTotalRightX = CONTENT_X + CONTENT_W - 18;
 
-          // Header text
           ctx.fillStyle = "#475569";
           ctx.font = `700 13px ${FONT_SANS}`;
           ctx.textAlign = "left";
@@ -3689,13 +3775,11 @@
           ctx.font = `700 13px ${FONT_SANS}`;
           ctx.fillText("Total", colTotalRightX, y + TABLE_HEADER_H / 2);
 
-          // Table body rows
           standings.forEach((s, rowIdx) => {
             const ry = y + TABLE_HEADER_H + rowIdx * TABLE_ROW_H;
-            ctx.fillStyle = s.rank === 1 ? "#ECFDF5" : rowIdx % 2 === 1 ? "#F8FAFC" : "#FFFFFF";
+            ctx.fillStyle = s.rank === 1 ? "#FFFBEB" : rowIdx % 2 === 1 ? "#F8FAFC" : "#FFFFFF";
             ctx.fillRect(CONTENT_X, ry, CONTENT_W, TABLE_ROW_H);
 
-            // Top row hairline
             ctx.strokeStyle = "#E2E8F0";
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -3706,13 +3790,14 @@
             const midY = ry + TABLE_ROW_H / 2;
 
             ctx.textAlign = "left";
-            ctx.fillStyle = s.rank === 1 ? "#047857" : "#64748B";
+            ctx.fillStyle = s.rank === 1 ? "#B45309" : "#64748B";
             ctx.font = `700 14px ${FONT_MONO}`;
             ctx.fillText(`#${s.rank}`, colRankX, midY);
 
             ctx.fillStyle = "#0F172A";
             ctx.font = `700 15px ${FONT_SANS}`;
-            ctx.fillText(truncateCanvasText(ctx, s.playerName, playerColW - 16), colPlayerX, midY);
+            const rowName = `${s.avatar || ""}  ${s.playerName}`.trim();
+            ctx.fillText(truncateCanvasText(ctx, rowName, playerColW - 16), colPlayerX, midY);
 
             ctx.textAlign = "right";
             ctx.fillStyle = "#475569";
@@ -3730,230 +3815,12 @@
 
           ctx.restore();
 
-          // Outer border of table
           drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, tableH, 12);
           ctx.strokeStyle = "#CBD5E1";
           ctx.lineWidth = 1.2;
           ctx.stroke();
 
-          y += tableH + 34;
-
-          // 6. Round History Section
-          if (roundHistoryEntries.length > 0) {
-            ctx.textAlign = "left";
-            ctx.fillStyle = "#0F172A";
-            ctx.font = `800 20px ${FONT_DISPLAY}`;
-            ctx.fillText("Round History", CONTENT_X, y + 14);
-
-            ctx.textAlign = "right";
-            ctx.fillStyle = "#64748B";
-            ctx.font = `600 13px ${FONT_MONO}`;
-            ctx.fillText(
-              `${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged`,
-              CONTENT_X + CONTENT_W,
-              y + 14
-            );
-            y += HISTORY_HEADER_H;
-
-            // Chosen Letters strip
-            if (chipRows.length > 0) {
-              ctx.textAlign = "left";
-              ctx.fillStyle = "#64748B";
-              ctx.font = `700 12px ${FONT_SANS}`;
-              ctx.fillText("CHOSEN LETTERS", CONTENT_X, y + 10);
-              y += 28;
-
-              chipRows.forEach((row) => {
-                row.forEach((chip) => {
-                  const cx = CONTENT_X + chip.x;
-                  drawRoundedRectPath(ctx, cx, y, chip.chipW, 32, 8);
-                  ctx.fillStyle = "#F8FAFC";
-                  ctx.fill();
-                  ctx.strokeStyle = "#CBD5E1";
-                  ctx.lineWidth = 1;
-                  ctx.stroke();
-
-                  ctx.textAlign = "left";
-                  ctx.fillStyle = "#64748B";
-                  ctx.font = `700 12px ${FONT_MONO}`;
-                  ctx.fillText(chip.rLabel, cx + 12, y + 16);
-
-                  ctx.fillStyle = "#065F46";
-                  ctx.font = `800 15px ${FONT_DISPLAY}`;
-                  ctx.fillText(
-                    truncateCanvasText(ctx, chip.letter, chip.chipW - 24 - chip.rW - 8),
-                    cx + 12 + chip.rW + 8,
-                    y + 16
-                  );
-                });
-                y += 40;
-              });
-              y += 16;
-            }
-
-            // Round breakdown cards
-            roundHistoryEntries.forEach((entry, rIdx) => {
-              const cardH = roundCardHeights[rIdx];
-              drawRoundedRectPath(ctx, CONTENT_X, y, CONTENT_W, cardH, 12);
-              ctx.fillStyle = "#F8FAFC";
-              ctx.fill();
-              ctx.strokeStyle = "#E2E8F0";
-              ctx.lineWidth = 1.2;
-              ctx.stroke();
-
-              // Round card top bar: Letter badge + Round title + Challenged count
-              ctx.font = `800 15px ${FONT_DISPLAY}`;
-              const letterW = Math.min(340, Math.ceil(ctx.measureText(entry.letter).width) + 24);
-              const badgeX = CONTENT_X + 18;
-              const badgeY = y + 12;
-              drawRoundedRectPath(ctx, badgeX, badgeY, Math.max(40, letterW), 28, 7);
-              ctx.fillStyle = "#047857";
-              ctx.fill();
-
-              ctx.textAlign = "center";
-              ctx.fillStyle = "#FFFFFF";
-              ctx.font = `800 14px ${FONT_DISPLAY}`;
-              ctx.fillText(
-                truncateCanvasText(ctx, entry.letter, Math.max(40, letterW) - 12),
-                badgeX + Math.max(40, letterW) / 2,
-                badgeY + 14
-              );
-
-              ctx.textAlign = "left";
-              ctx.fillStyle = "#0F172A";
-              ctx.font = `800 15px ${FONT_SANS}`;
-              ctx.fillText(`Round ${entry.roundNumber}`, badgeX + Math.max(40, letterW) + 12, badgeY + 14);
-
-              ctx.textAlign = "right";
-              ctx.fillStyle = entry.challenged.length > 0 ? "#B45309" : "#94A3B8";
-              ctx.font = `700 13px ${FONT_MONO}`;
-              ctx.fillText(
-                entry.challenged.length > 0 ? `${entry.challenged.length} challenged` : "No challenges",
-                CONTENT_X + CONTENT_W - 18,
-                badgeY + 14
-              );
-
-              // Player bars inside round card
-              let py = y + 54;
-              const barX = CONTENT_X + 18;
-              const barW = CONTENT_W - 36;
-
-              entry.sortedPlayers.forEach((ps) => {
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#1E293B";
-                ctx.font = `700 14px ${FONT_SANS}`;
-                ctx.fillText(truncateCanvasText(ctx, ps.playerName, barW - 180), barX, py + 7);
-
-                ctx.textAlign = "right";
-                ctx.fillStyle = "#0F172A";
-                ctx.font = `800 14px ${FONT_MONO}`;
-                const ptsText = `${ps.roundTotal} pts`;
-                const ptsW = ctx.measureText(ptsText).width;
-                ctx.fillText(ptsText, barX + barW, py + 7);
-
-                ctx.fillStyle = "#64748B";
-                ctx.font = `600 12px ${FONT_MONO}`;
-                ctx.fillText(`${ps.uniqueCount}U · ${ps.sharedCount}S`, barX + barW - ptsW - 12, py + 7);
-
-                // Progress bar track
-                const trackY = py + 19;
-                drawRoundedRectPath(ctx, barX, trackY, barW, 7, 3.5);
-                ctx.fillStyle = "#E2E8F0";
-                ctx.fill();
-
-                const pct = Math.max(0, Math.min(1, ps.roundTotal / 50));
-                if (pct > 0) {
-                  drawRoundedRectPath(ctx, barX, trackY, Math.max(8, barW * pct), 7, 3.5);
-                  ctx.fillStyle = "#059669";
-                  ctx.fill();
-                }
-
-                py += 34;
-              });
-
-              // Challenged words list if any
-              if (entry.challenged.length > 0) {
-                py += 6;
-                ctx.strokeStyle = "#E2E8F0";
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(barX, py);
-                ctx.lineTo(barX + barW, py);
-                ctx.stroke();
-
-                py += 15;
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#64748B";
-                ctx.font = `700 11px ${FONT_SANS}`;
-                ctx.fillText("CHALLENGED WORDS", barX, py);
-                py += 14;
-
-                entry.challenged.forEach((ch) => {
-                  const isRejected = ch.decision === "invalid" || ch.decision === "rejected";
-                  const isDuplicate = ch.decision === "duplicate";
-                  const isApproved = ch.decision === "valid" || ch.decision === "approved";
-                  const statusColor = isRejected ? "#B91C1C" : isDuplicate ? "#B45309" : isApproved ? "#047857" : "#B45309";
-                  const statusLabel = isRejected
-                    ? "Disapproved · +0"
-                    : isDuplicate
-                      ? "Match / Same · +5"
-                      : isApproved
-                        ? `Approved · +${ch.points}`
-                        : `Ruled · +${ch.points}`;
-
-                  drawRoundedRectPath(ctx, barX, py, barW, 48, 8);
-                  ctx.fillStyle = "#FFFFFF";
-                  ctx.fill();
-                  ctx.strokeStyle = "#E2E8F0";
-                  ctx.lineWidth = 1;
-                  ctx.stroke();
-
-                  // Word & Status row
-                  ctx.textAlign = "right";
-                  ctx.fillStyle = statusColor;
-                  ctx.font = `700 12px ${FONT_MONO}`;
-                  const statusW = ctx.measureText(statusLabel).width;
-                  ctx.fillText(statusLabel, barX + barW - 12, py + 15);
-
-                  ctx.textAlign = "left";
-                  ctx.fillStyle = isRejected ? "#94A3B8" : "#0F172A";
-                  ctx.font = `700 14px ${FONT_SANS}`;
-                  const wordDrawn = truncateCanvasText(ctx, ch.word, barW - statusW - 40);
-                  ctx.fillText(wordDrawn, barX + 12, py + 15);
-                  if (isRejected) {
-                    const ww = ctx.measureText(wordDrawn).width;
-                    ctx.strokeStyle = "#94A3B8";
-                    ctx.lineWidth = 1.4;
-                    ctx.beginPath();
-                    ctx.moveTo(barX + 12, py + 15);
-                    ctx.lineTo(barX + 12 + ww, py + 15);
-                    ctx.stroke();
-                  }
-
-                  // Metadata & reason row
-                  const metaLine = `${ch.playerName} · ${ch.categoryLabel}${ch.reason ? ` — ${ch.reason}` : ""}`;
-                  ctx.fillStyle = "#64748B";
-                  ctx.font = `500 12px ${FONT_SANS}`;
-                  ctx.fillText(truncateCanvasText(ctx, metaLine, barW - 24), barX + 12, py + 34);
-
-                  py += 56;
-                });
-              }
-
-              y += cardH + 14;
-            });
-
-            if (NO_CHALLENGES_NOTE_H > 0) {
-              ctx.textAlign = "left";
-              ctx.fillStyle = "#64748B";
-              ctx.font = `500 13px ${FONT_SANS}`;
-              ctx.fillText("No words were challenged during this match.", CONTENT_X, y + 10);
-              y += NO_CHALLENGES_NOTE_H;
-            }
-            y += 10;
-          }
-
-          // 7. Footer separator & metadata
+          // 6. Minimal Footer
           const footerY = OUTER_PAD + CARD_H - FOOTER_H;
           ctx.strokeStyle = "#E2E8F0";
           ctx.lineWidth = 1;
@@ -3980,7 +3847,104 @@
           return canvas.toDataURL("image/png");
         }
 
+        function buildFallbackScoreboardSvgDataUrl(data) {
+          const { resultsList, standings, winner, headline, slots } = data;
+          const W = 1080;
+          const rowH = 46;
+          const tableH = 44 + Math.max(1, standings.length) * rowH;
+          const H = 610 + tableH;
+          const safe = (v) => escapeHtml(String(v ?? ""));
+
+          const podiumSvg = slots.map((entry, idx) => {
+            const tier = entry.tier || entry.rank;
+            const isGold = tier === 1;
+            const isSilver = tier === 2;
+            const slotW = slots.length === 1 ? 340 : slots.length === 2 ? 320 : 280;
+            const gap = 24;
+            const totalW = slotW * slots.length + gap * (slots.length - 1);
+            const sx = (W - totalW) / 2 + idx * (slotW + gap);
+            const pedH = isGold ? 114 : isSilver ? 86 : 64;
+            const topY = 472 - pedH;
+            const fill = isGold ? "#FBBF24" : isSilver ? "#E2E8F0" : "#FDBA74";
+            const stroke = isGold ? "#D97706" : isSilver ? "#94A3B8" : "#EA580C";
+            const txtCol = isGold ? "#451A03" : isSilver ? "#0F172A" : "#431407";
+            return `
+              <g>
+                <circle cx="${sx + slotW / 2}" cy="${topY - 76}" r="${isGold ? 32 : 26}" fill="${isGold ? "#FEF3C7" : isSilver ? "#F1F5F9" : "#FFEDD5"}" stroke="${stroke}" stroke-width="3"></circle>
+                <text x="${sx + slotW / 2}" y="${topY - 68}" text-anchor="middle" font-size="${isGold ? 30 : 24}">${safe(entry.avatar || "🦁")}</text>
+                <text x="${sx + slotW / 2}" y="${topY - 26}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="#0F172A">${safe(entry.playerName.slice(0, 18))}</text>
+                <rect x="${sx}" y="${topY}" width="${slotW}" height="${pedH}" rx="12" fill="${fill}" stroke="${stroke}" stroke-width="1.5"></rect>
+                <text x="${sx + slotW / 2}" y="${topY + 34}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="800" fill="${txtCol}">#${entry.rank}</text>
+                <text x="${sx + slotW / 2}" y="${topY + Math.min(pedH - 14, 68)}" text-anchor="middle" font-family="monospace" font-size="20" font-weight="800" fill="${txtCol}">${entry.totalScore} pts</text>
+              </g>`;
+          }).join("");
+
+          const rowsSvg = standings.map((s, idx) => {
+            const ry = 554 + idx * rowH;
+            return `
+              <g>
+                <rect x="72" y="${ry}" width="936" height="${rowH}" fill="${s.rank === 1 ? "#FFFBEB" : idx % 2 === 1 ? "#F8FAFC" : "#FFFFFF"}"></rect>
+                <line x1="72" y1="${ry}" x2="1008" y2="${ry}" stroke="#E2E8F0"></line>
+                <text x="92" y="${ry + 28}" font-family="monospace" font-size="14" font-weight="700" fill="${s.rank === 1 ? "#B45309" : "#64748B"}">#${s.rank}</text>
+                <text x="160" y="${ry + 28}" font-family="system-ui, sans-serif" font-size="15" font-weight="700" fill="#0F172A">${safe(`${s.avatar || ""} ${s.playerName}`.trim())}</text>
+                <text x="988" y="${ry + 28}" text-anchor="end" font-family="monospace" font-size="16" font-weight="800" fill="#047857">${s.totalScore} pts</text>
+              </g>`;
+          }).join("");
+
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+            <rect width="${W}" height="${H}" fill="#F1F5F9"></rect>
+            <rect x="36" y="36" width="${W - 72}" height="${H - 72}" rx="22" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"></rect>
+            <rect x="72" y="72" width="936" height="184" rx="16" fill="#065F46"></rect>
+            <text x="100" y="108" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#A7F3D0">പേര് · സ്ഥലം · മൃഗം · പൂവ് · സാധനം</text>
+            <text x="980" y="108" text-anchor="end" font-family="monospace" font-size="13" font-weight="700" fill="#D1FAE5">${resultsList.length} ${resultsList.length === 1 ? "ROUND" : "ROUNDS"} PLAYED</text>
+            <text x="100" y="136" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#E2E8F0">Name, Place, Animal, Thing</text>
+            <text x="100" y="186" font-family="system-ui, sans-serif" font-size="36" font-weight="800" fill="#FFFFFF">${safe(headline)}</text>
+            ${winner ? `<text x="100" y="226" font-family="monospace" font-size="16" font-weight="700" fill="#FDE68A">${winner.totalScore} total points · ${winner.uniqueCount} unique · ${winner.sharedCount} shared</text>` : ""}
+            ${podiumSvg}
+            <text x="72" y="502" font-family="system-ui, sans-serif" font-size="20" font-weight="800" fill="#0F172A">Final Scoreboard</text>
+            <rect x="72" y="510" width="936" height="44" fill="#F1F5F9"></rect>
+            <text x="92" y="537" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#475569">Rank</text>
+            <text x="160" y="537" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#475569">Player</text>
+            <text x="988" y="537" text-anchor="end" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0F172A">Total</text>
+            ${rowsSvg}
+            <rect x="72" y="510" width="936" height="${tableH}" rx="12" fill="none" stroke="#CBD5E1" stroke-width="1.2"></rect>
+          </svg>`;
+
+          return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        }
+
+        async function generatePodiumScoreboardImage() {
+          if (document.fonts && document.fonts.ready && document.fonts.status !== "loaded") {
+            try {
+              await Promise.race([
+                document.fonts.ready,
+                new Promise((resolve) => setTimeout(resolve, 350)),
+              ]);
+            } catch {}
+          }
+
+          const data = buildPodiumData();
+
+          // Attempt 1: Crisp 2x Retina PNG canvas
+          try {
+            const url2x = renderScoreboardCanvas(data, 2);
+            if (isValidImageDataUrl(url2x)) return url2x;
+          } catch {}
+
+          // Attempt 2: Lightweight 1x PNG canvas fallback (for constrained mobile GPU memory)
+          try {
+            const url1x = renderScoreboardCanvas(data, 1);
+            if (isValidImageDataUrl(url1x)) return url1x;
+          } catch {}
+
+          // Attempt 3: Guaranteed standalone SVG image fallback
+          return buildFallbackScoreboardSvgDataUrl(data);
+        }
+
+        let shareModalRenderToken = 0;
+
         async function openPodiumShareModal() {
+          const token = ++shareModalRenderToken;
           state.shareModalOpen = true;
           state.shareImageBusy = true;
           state.shareImageStatus = "";
@@ -3988,22 +3952,41 @@
 
           try {
             const dataUrl = await generatePodiumScoreboardImage();
-            state.shareImageDataUrl = dataUrl;
+            if (token !== shareModalRenderToken || !state.shareModalOpen) return;
+            state.shareImageDataUrl = isValidImageDataUrl(dataUrl)
+              ? dataUrl
+              : buildFallbackScoreboardSvgDataUrl(buildPodiumData());
             state.shareImageBusy = false;
             render();
           } catch {
-            state.shareImageBusy = false;
-            state.shareImageStatus = "Could not render scoreboard image. Please try again.";
+            if (token !== shareModalRenderToken || !state.shareModalOpen) return;
+            try {
+              state.shareImageDataUrl = buildFallbackScoreboardSvgDataUrl(buildPodiumData());
+              state.shareImageBusy = false;
+              state.shareImageStatus = "";
+            } catch {
+              state.shareImageBusy = false;
+              state.shareImageStatus = "Could not render scoreboard image. Tap Retry to try again.";
+            }
             render();
           }
         }
 
-        function downloadPodiumScoreboardImage() {
-          if (!state.shareImageDataUrl) return;
-          const fileName = getExportFileName();
+        async function ensureShareImageReady() {
+          if (isValidImageDataUrl(state.shareImageDataUrl)) return state.shareImageDataUrl;
+          const generated = await generatePodiumScoreboardImage();
+          state.shareImageDataUrl = generated;
+          return generated;
+        }
+
+        async function downloadPodiumScoreboardImage() {
+          const dataUrl = await ensureShareImageReady();
+          if (!isValidImageDataUrl(dataUrl)) return;
+          const isSvg = dataUrl.startsWith("data:image/svg+xml");
+          const fileName = getExportFileName(isSvg);
           try {
-            const blob = dataUrlToBlob(state.shareImageDataUrl);
-            const url = blob ? URL.createObjectURL(blob) : state.shareImageDataUrl;
+            const blob = dataUrlToBlob(dataUrl);
+            const url = blob ? URL.createObjectURL(blob) : dataUrl;
             const link = document.createElement("a");
             link.href = url;
             link.download = fileName;
@@ -4013,7 +3996,7 @@
             if (blob) {
               setTimeout(() => URL.revokeObjectURL(url), 4000);
             }
-            state.shareImageStatus = "Scoreboard PNG downloaded!";
+            state.shareImageStatus = isSvg ? "Scoreboard image downloaded!" : "Scoreboard PNG downloaded!";
           } catch {
             state.shareImageStatus = "Download failed. Try right-clicking or long-pressing the preview image to save.";
           }
@@ -4021,14 +4004,16 @@
         }
 
         async function nativeSharePodiumImage() {
-          if (!state.shareImageDataUrl) return;
-          const fileName = getExportFileName();
+          const dataUrl = await ensureShareImageReady();
+          if (!isValidImageDataUrl(dataUrl)) return;
+          const isSvg = dataUrl.startsWith("data:image/svg+xml");
+          const fileName = getExportFileName(isSvg);
           const data = buildPodiumData();
           const shareText = `${data.headline} — Name, Place, Animal, Thing (${data.resultsList.length} ${data.resultsList.length === 1 ? "Round" : "Rounds"})`;
           try {
-            const blob = dataUrlToBlob(state.shareImageDataUrl);
+            const blob = dataUrlToBlob(dataUrl);
             if (blob && typeof File !== "undefined" && navigator.share) {
-              const file = new File([blob], fileName, { type: "image/png" });
+              const file = new File([blob], fileName, { type: isSvg ? "image/svg+xml" : "image/png" });
               if (navigator.canShare && navigator.canShare({ files: [file] })) {
                 await navigator.share({
                   title: "Name, Place, Animal, Thing — Scoreboard",
@@ -4052,10 +4037,11 @@
         }
 
         async function copyPodiumImageToClipboard() {
-          if (!state.shareImageDataUrl) return;
+          const dataUrl = await ensureShareImageReady();
+          if (!isValidImageDataUrl(dataUrl)) return;
           try {
-            const blob = dataUrlToBlob(state.shareImageDataUrl);
-            if (blob && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+            const blob = dataUrlToBlob(dataUrl);
+            if (blob && !dataUrl.startsWith("data:image/svg+xml") && navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
               await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
               state.shareImageStatus = "Scoreboard image copied to clipboard!";
             } else {
@@ -4069,14 +4055,15 @@
 
         function renderShareImageModal() {
           if (state.phase !== "gameover" || !state.shareModalOpen) return "";
+          const hasImage = isValidImageDataUrl(state.shareImageDataUrl);
           return `
             <div id="share-image-modal" role="dialog" aria-modal="true" aria-labelledby="share-modal-title"
               class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6 backdrop-blur-[1px]">
               <div data-action="close-share-modal" class="absolute inset-0"></div>
               <div class="relative z-10 flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-                <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-5 py-4">
+                <div class="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/80 px-5 py-4">
                   <div class="min-w-0">
-                    <p class="text-[11px] font-semibold text-emerald-700">Scoreboard &amp; Round History · PNG</p>
+                    <p class="text-[11px] font-semibold text-emerald-700">Final Scoreboard · PNG</p>
                     <h2 id="share-modal-title" class="font-display text-lg font-extrabold text-slate-900 truncate">Share Scoreboard Image</h2>
                   </div>
                   <button type="button" data-action="close-share-modal" aria-label="Close export preview"
@@ -4085,38 +4072,46 @@
                   </button>
                 </div>
 
-                <div class="flex-1 overflow-y-auto bg-slate-100/80 p-4 sm:p-5">
-                  ${state.shareImageBusy || !state.shareImageDataUrl
-                    ? `<div class="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+                <div class="min-h-0 flex-1 overflow-y-auto bg-slate-100/80 p-4 sm:p-5">
+                  ${state.shareImageBusy
+                    ? `<div class="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
                          <div class="h-7 w-7 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent"></div>
-                         <p class="text-sm font-semibold text-slate-700">Rendering high-resolution scoreboard...</p>
+                         <p class="text-sm font-semibold text-slate-700">Rendering scoreboard preview...</p>
                        </div>`
-                    : `<div class="mx-auto max-w-xl">
-                         <img id="share-preview-img" src="${state.shareImageDataUrl}" alt="Final game scoreboard and round history image"
-                           class="w-full h-auto rounded-xl border border-slate-200 bg-white shadow-sm" />
-                       </div>`}
+                    : hasImage
+                      ? `<div class="mx-auto max-w-xl">
+                           <img id="share-preview-img" src="${state.shareImageDataUrl}" alt="Final game scoreboard image"
+                             class="block w-full h-auto min-h-[180px] rounded-xl border border-slate-200 bg-white object-contain shadow-sm" />
+                         </div>`
+                      : `<div class="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+                           <p class="text-sm font-semibold text-slate-700">Preview couldn't be rendered.</p>
+                           <button type="button" data-action="export-podium-image"
+                             class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800">
+                             Retry Preview
+                           </button>
+                         </div>`}
                 </div>
 
-                <div class="border-t border-slate-200 bg-white px-5 py-4 space-y-3">
+                <div class="shrink-0 border-t border-slate-200 bg-white px-5 py-4 space-y-3">
                   ${state.shareImageStatus
                     ? `<p id="share-image-status" class="text-center text-xs font-semibold text-emerald-700">${escapeHtml(state.shareImageStatus)}</p>`
-                    : `<p class="text-center text-xs text-slate-500">Save or share this PNG card with everyone from your match.</p>`}
+                    : `<p class="text-center text-xs text-slate-500">Save or share this compact scoreboard card with everyone from your match.</p>`}
                   <div class="flex flex-wrap items-center justify-center gap-2.5">
-                    <button type="button" data-action="download-podium-image" ${state.shareImageBusy || !state.shareImageDataUrl ? "disabled" : ""}
+                    <button type="button" data-action="download-podium-image" ${state.shareImageBusy || !hasImage ? "disabled" : ""}
                       class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50 whitespace-nowrap">
                       <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
                         <path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v7.69l2.47-2.47a.75.75 0 111.06 1.06l-3.75 3.75a.75.75 0 01-1.06 0L5.72 10.03a.75.75 0 011.06-1.06l2.47 2.47V3.75A.75.75 0 0110 3zM3.5 14.75a.75.75 0 01.75.75v.75c0 .414.336.75.75.75h10a.75.75 0 00.75-.75v-.75a.75.75 0 011.5 0v.75A2.25 2.25 0 0115 18.5H5a2.25 2.25 0 01-2.25-2.25v-.75a.75.75 0 01.75-.75z" clip-rule="evenodd" />
                       </svg>
                       <span>Download PNG</span>
                     </button>
-                    <button type="button" data-action="native-share-podium-image" ${state.shareImageBusy || !state.shareImageDataUrl ? "disabled" : ""}
+                    <button type="button" data-action="native-share-podium-image" ${state.shareImageBusy || !hasImage ? "disabled" : ""}
                       class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap">
                       <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
                         <path d="M13 4.5a2.5 2.5 0 11.702 1.737L6.97 9.604a2.518 2.518 0 010 .792l6.733 3.367a2.5 2.5 0 11-.671 1.341l-6.733-3.367a2.5 2.5 0 110-3.474l6.733-3.366A2.52 2.52 0 0113 4.5z" />
                       </svg>
                       <span>Share</span>
                     </button>
-                    <button type="button" data-action="copy-podium-image" ${state.shareImageBusy || !state.shareImageDataUrl ? "disabled" : ""}
+                    <button type="button" data-action="copy-podium-image" ${state.shareImageBusy || !hasImage ? "disabled" : ""}
                       class="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap">
                       <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
                         <path d="M7 3.5A1.5 1.5 0 018.5 2h6A1.5 1.5 0 0116 3.5v8a1.5 1.5 0 01-1.5 1.5h-6A1.5 1.5 0 017 11.5v-8z" />
@@ -4438,7 +4433,7 @@
                         ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} reviewed
                       </p>
                     </div>
-                    <button type="button" data-action="export-podium-image" title="Export scoreboard & round history as PNG"
+                    <button type="button" data-action="export-podium-image" title="Export scoreboard as PNG"
                       class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 whitespace-nowrap">
                       <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 text-emerald-700 shrink-0" aria-hidden="true">
                         <path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v7.69l2.47-2.47a.75.75 0 111.06 1.06l-3.75 3.75a.75.75 0 01-1.06 0L5.72 10.03a.75.75 0 011.06-1.06l2.47 2.47V3.75A.75.75 0 0110 3zM3.5 14.75a.75.75 0 01.75.75v.75c0 .414.336.75.75.75h10a.75.75 0 00.75-.75v-.75a.75.75 0 011.5 0v.75A2.25 2.25 0 0115 18.5H5a2.25 2.25 0 01-2.25-2.25v-.75a.75.75 0 01.75-.75z" clip-rule="evenodd" />
