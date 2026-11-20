@@ -117,13 +117,32 @@
       .podium-rise {
         animation: podiumRise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
+      @keyframes reviewToastIn {
+        0% {
+          opacity: 0;
+          transform: translateY(-14px) scale(0.97);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      .review-toast-in {
+        animation: reviewToastIn 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .review-toast-out {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.97);
+        transition: opacity 0.22s ease, transform 0.22s ease;
+      }
       @media (prefers-reduced-motion: reduce) {
         .lobby-float-emoji {
           animation-duration: 0.9s;
         }
         .ready-pop,
         .podium-trophy-bob,
-        .podium-rise {
+        .podium-rise,
+        .review-toast-in {
           animation: none;
         }
       }
@@ -131,6 +150,7 @@
   </head>
   <body class="ledger-canvas min-h-screen text-slate-900 antialiased selection:bg-emerald-100 selection:text-emerald-900">
     <div id="app"></div>
+    <div id="review-toast-stage" aria-live="polite" aria-atomic="false" class="pointer-events-none fixed inset-x-0 top-3 sm:top-4 z-50 flex flex-col items-center gap-2 px-3 sm:px-4"></div>
     <div id="lobby-reaction-stage" aria-hidden="true" class="pointer-events-none fixed inset-0 z-50 overflow-hidden"></div>
 
     <script>
@@ -912,6 +932,9 @@
         ];
 
         const seenLobbyReactionIds = new Set();
+        const seenReviewMessageIds = new Set();
+        let reviewToastHydratedKey = "";
+        let reviewChatHighlightTimer = null;
 
         function getPlayerAvatar(player, fallbackIdx = 0) {
           if (player && typeof player.avatar === "string" && player.avatar.trim()) {
@@ -919,6 +942,133 @@
           }
           const idx = Math.abs(fallbackIdx) % LOBBY_AVATARS.length;
           return LOBBY_AVATARS[idx];
+        }
+
+        function resolveReviewMessageAvatar(msg) {
+          if (msg && typeof msg.avatar === "string" && msg.avatar.trim()) {
+            return msg.avatar.trim();
+          }
+          const senderId = msg && msg.senderId ? String(msg.senderId) : "";
+          const players =
+            state.mode === "online" && state.room
+              ? getOrderedRoomPlayers(state.room)
+              : Array.isArray(state.activePlayers)
+                ? state.activePlayers
+                : [];
+          const idx = players.findIndex((p) => p && p.id === senderId);
+          if (idx >= 0) {
+            return getPlayerAvatar(players[idx], idx);
+          }
+          let hash = 0;
+          const seed = senderId || (msg && msg.senderName) || "player";
+          for (let i = 0; i < seed.length; i++) {
+            hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+          }
+          return getPlayerAvatar(null, Math.abs(hash));
+        }
+
+        function clearReviewChatToasts() {
+          const stage = document.getElementById("review-toast-stage");
+          if (!stage) return;
+          const items = Array.from(stage.querySelectorAll("[data-review-toast]"));
+          items.forEach((node) => {
+            if (node._dismissTimer) clearTimeout(node._dismissTimer);
+            node.remove();
+          });
+        }
+
+        function dismissReviewToastNode(node) {
+          if (!node || node.dataset.closing === "1") return;
+          node.dataset.closing = "1";
+          if (node._dismissTimer) {
+            clearTimeout(node._dismissTimer);
+            node._dismissTimer = null;
+          }
+          node.classList.remove("review-toast-in");
+          node.classList.add("review-toast-out");
+          setTimeout(() => node.remove(), 240);
+        }
+
+        function jumpToReviewChatPanel() {
+          const panel = document.getElementById("review-chat-panel");
+          if (!panel) return;
+          panel.scrollIntoView({ behavior: "smooth", block: "start" });
+          const list = document.getElementById("review-chat-list");
+          if (list) list.scrollTop = list.scrollHeight;
+          panel.classList.add("ring-2", "ring-emerald-500", "ring-offset-2");
+          if (reviewChatHighlightTimer) clearTimeout(reviewChatHighlightTimer);
+          reviewChatHighlightTimer = setTimeout(() => {
+            panel.classList.remove("ring-2", "ring-emerald-500", "ring-offset-2");
+          }, 1400);
+        }
+
+        function showReviewChatToast(msg, opts = {}) {
+          if (!msg || !msg.text) return;
+          const stage = document.getElementById("review-toast-stage");
+          if (!stage) return;
+
+          // Keep at most 2 stacked banners so essential top controls stay unobstructed
+          const existing = Array.from(stage.querySelectorAll("[data-review-toast]"));
+          if (existing.length >= 2) {
+            dismissReviewToastNode(existing[0]);
+          }
+
+          const avatar = resolveReviewMessageAvatar(msg);
+          const senderName = String(msg.senderName || "Player");
+          const isAdminSender = Boolean(msg.isAdmin);
+          const isSelf = Boolean(opts.isSelf);
+          const durationMs = opts.durationMs || 4800;
+
+          const card = document.createElement("div");
+          card.setAttribute("data-review-toast", msg.id || String(Date.now()));
+          card.setAttribute("role", "status");
+          card.className =
+            "review-toast-in pointer-events-auto flex w-full max-w-[calc(100vw-1.5rem)] sm:max-w-md items-start gap-2.5 rounded-xl border px-3 py-2.5 shadow-lg backdrop-blur-md ring-1 ring-slate-900/5 " +
+            (isSelf
+              ? "border-emerald-300/90 bg-white/95 text-slate-900"
+              : "border-amber-300/90 bg-white/95 text-slate-900");
+
+          card.innerHTML = `
+            <button type="button" data-action="toast-jump-review-chat"
+              class="flex min-w-0 flex-1 items-start gap-2.5 text-left focus:outline-none">
+              <span class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                isSelf ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-amber-50 ring-1 ring-amber-200"
+              } text-base leading-none select-none" aria-hidden="true">${escapeHtml(avatar)}</span>
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-center gap-1.5">
+                  <span class="truncate text-xs font-extrabold text-slate-900">${escapeHtml(senderName)}</span>
+                  ${isAdminSender ? `<span class="rounded bg-emerald-700 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">Admin</span>` : ""}
+                  <span class="text-[10px] font-semibold ${isSelf ? "text-emerald-700" : "text-amber-700"}">${isSelf ? "Sent to Review Chat" : "Review Chat"}</span>
+                </span>
+                <span class="mt-0.5 block break-words text-xs font-medium text-slate-700 leading-snug line-clamp-2">${escapeHtml(msg.text)}</span>
+                <span class="mt-1 block text-[10px] font-semibold text-emerald-700">Tap to jump to Review Chat ↓</span>
+              </span>
+            </button>
+            <button type="button" data-action="dismiss-review-toast" aria-label="Dismiss review chat notification"
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors">
+              <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
+          `;
+
+          const scheduleDismiss = (ms) => {
+            if (card._dismissTimer) clearTimeout(card._dismissTimer);
+            card._dismissTimer = setTimeout(() => dismissReviewToastNode(card), ms);
+          };
+
+          card.addEventListener("mouseenter", () => {
+            if (card._dismissTimer) {
+              clearTimeout(card._dismissTimer);
+              card._dismissTimer = null;
+            }
+          });
+          card.addEventListener("mouseleave", () => {
+            scheduleDismiss(2200);
+          });
+
+          stage.appendChild(card);
+          scheduleDismiss(durationMs);
         }
 
         function spawnFloatingReaction(emoji, senderName = "") {
@@ -987,19 +1137,24 @@
 
         function getCurrentChatSender() {
           if (state.mode === "online" && state.room) {
-            const p = state.room.playersMap && state.room.playersMap[myClientId];
+            const players = getOrderedRoomPlayers(state.room);
+            const myIdx = players.findIndex((x) => x.id === myClientId);
+            const p = (state.room.playersMap && state.room.playersMap[myClientId]) || players[myIdx];
             return {
               id: myClientId,
               name: (p && p.name) || state.onlineName || "Player",
+              avatar: getPlayerAvatar(p, myIdx >= 0 ? myIdx : 0),
               isAdmin: state.room.hostId === myClientId,
             };
           }
           const reviewerId = getCurrentReviewerId();
           const adminId = getRoomAdminId();
-          const p = state.activePlayers.find((x) => x.id === reviewerId);
+          const idx = state.activePlayers.findIndex((x) => x.id === reviewerId);
+          const p = idx >= 0 ? state.activePlayers[idx] : null;
           return {
             id: reviewerId || "human_1",
             name: (p && p.name) || state.soloName || "Player 1",
+            avatar: getPlayerAvatar(p, idx >= 0 ? idx : 0),
             isAdmin: Boolean(reviewerId && reviewerId === adminId),
           };
         }
@@ -1543,6 +1698,24 @@
                 state.reviewChatDraft = "";
                 soundFx.playTimeUp();
               }
+              if (incoming.phase === "appeal" && Array.isArray(incoming.reviewMessages)) {
+                const roundNum = Number(incoming.currentRound || 1);
+                const hydrateKey = `${roomCode}|${roundNum}`;
+                const isFirstHydrate = reviewToastHydratedKey !== hydrateKey && prevPhase !== "appeal";
+                reviewToastHydratedKey = hydrateKey;
+                const nowMs = Date.now();
+                const currentMsgs = incoming.reviewMessages
+                  .filter((m) => m && m.id && (!m.round || Number(m.round) === roundNum))
+                  .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+                for (const m of currentMsgs) {
+                  if (seenReviewMessageIds.has(m.id)) continue;
+                  seenReviewMessageIds.add(m.id);
+                  const ageMs = nowMs - (m.createdAt || 0);
+                  if (!isFirstHydrate || ageMs < 5000) {
+                    showReviewChatToast(m, { isSelf: m.senderId === myClientId });
+                  }
+                }
+              }
               if (incoming.phase === "gameover" && prevPhase !== "gameover") {
                 soundFx.playVictory();
               }
@@ -1908,19 +2081,23 @@
             round: r.currentRound || 1,
             senderId: sender.id,
             senderName: sender.name,
+            avatar: sender.avatar,
             isAdmin: sender.isAdmin,
             text,
             createdAt: Date.now(),
           };
 
+          seenReviewMessageIds.add(msg.id);
           state.reviewChatDraft = "";
           render();
+          showReviewChatToast(msg, { isSelf: true });
 
           try {
             await db.collection("rooms").doc(r.roomCode).update({
               reviewMessages: window.firebase.firestore.FieldValue.arrayUnion(msg),
             });
           } catch (err) {
+            seenReviewMessageIds.delete(msg.id);
             state.reviewChatDraft = text;
             state.onlineError = formatFirebaseError(err, "Failed to send review message.");
             render();
@@ -2143,20 +2320,24 @@
           const text = String(rawText || "").trim().slice(0, 240);
           if (!text) return;
           const sender = getCurrentChatSender();
+          const msg = {
+            id: "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+            round: state.currentRound,
+            senderId: sender.id,
+            senderName: sender.name,
+            avatar: sender.avatar,
+            isAdmin: sender.isAdmin,
+            text,
+            createdAt: Date.now(),
+          };
+          seenReviewMessageIds.add(msg.id);
           state.reviewMessages = [
             ...(Array.isArray(state.reviewMessages) ? state.reviewMessages : []),
-            {
-              id: "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
-              round: state.currentRound,
-              senderId: sender.id,
-              senderName: sender.name,
-              isAdmin: sender.isAdmin,
-              text,
-              createdAt: Date.now(),
-            },
+            msg,
           ];
           state.reviewChatDraft = "";
           render();
+          showReviewChatToast(msg, { isSelf: true });
         }
 
         // =====================================================================
@@ -3072,6 +3253,7 @@
                         <p class="mt-1 text-[11px] text-slate-500">Send a quick note below if you want the Room Admin to review a word or duplicate match.</p>
                       </div>` : roundMessages.map((msg) => {
                         const isMine = msg.senderId === chatSender.id;
+                        const msgAvatar = resolveReviewMessageAvatar(msg);
                         return `
                           <div class="flex flex-col ${isMine ? "items-end" : "items-start"}">
                             <div class="max-w-[90%] rounded-lg border px-3 py-2 text-xs ${
@@ -3080,6 +3262,7 @@
                                 : "border-slate-200 bg-slate-50 text-slate-900"
                             }">
                               <div class="flex items-center gap-1.5 text-[11px]">
+                                <span class="text-sm leading-none select-none" aria-hidden="true">${escapeHtml(msgAvatar)}</span>
                                 <span class="font-bold ${isMine ? "text-emerald-900" : "text-slate-800"}">${escapeHtml(msg.senderName || "Player")}</span>
                                 ${msg.isAdmin ? `<span class="rounded bg-emerald-700 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">Admin</span>` : ""}
                                 ${msg.createdAt ? `<span class="text-slate-400 font-mono-tabular">${escapeHtml(formatChatTime(msg.createdAt))}</span>` : ""}
@@ -4891,8 +5074,9 @@
           const chatSelStart = preservedInputId ? activeEl.selectionStart : null;
           const chatSelEnd = preservedInputId ? activeEl.selectionEnd : null;
 
-          if (state.phase !== "appeal" && state.reviewMenuOpen) {
-            state.reviewMenuOpen = false;
+          if (state.phase !== "appeal") {
+            if (state.reviewMenuOpen) state.reviewMenuOpen = false;
+            clearReviewChatToasts();
           }
           if (state.phase !== "title" && state.rulesOpen) {
             state.rulesOpen = false;
@@ -5225,7 +5409,16 @@
             render();
           }
           else if (act === "jump-review-chat") {
-            document.getElementById("review-chat-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            jumpToReviewChatPanel();
+          }
+          else if (act === "toast-jump-review-chat") {
+            const toastNode = btn.closest("[data-review-toast]");
+            if (toastNode) dismissReviewToastNode(toastNode);
+            jumpToReviewChatPanel();
+          }
+          else if (act === "dismiss-review-toast") {
+            const toastNode = btn.closest("[data-review-toast]");
+            if (toastNode) dismissReviewToastNode(toastNode);
           }
           else if (act === "toggle-mute") {
             soundFx.toggleMute();
