@@ -699,6 +699,9 @@
           reviewMessages: [],
           reviewChatDraft: "",
           reviewMenuOpen: false,
+          rulesOpen: false,
+          historyDrawerOpen: false,
+          backConfirmOpen: false,
           // Waiting Lobby entertainment state
           lobbyChatDraft: "",
           lobbyRiddleIndex: 0,
@@ -1193,7 +1196,7 @@
           }
 
           timerInterval = setInterval(() => {
-            if (state.phase !== "playing" || state.paused) return;
+            if (state.phase !== "playing" || state.paused || state.backConfirmOpen) return;
             state.timeLeft = Math.max(0, state.timeLeft - 1);
             saveGameState();
             if (state.timeLeft > 0 && state.timeLeft <= 10) soundFx.playUrgentTick();
@@ -1731,6 +1734,9 @@
           clearSavedGameState();
           state.room = null;
           state.submittedOnline = false;
+          state.reviewMenuOpen = false;
+          state.historyDrawerOpen = false;
+          state.backConfirmOpen = false;
           state.phase = "title";
           render();
 
@@ -1766,6 +1772,9 @@
           state.reviewMessages = [];
           state.reviewChatDraft = "";
           state.reviewMenuOpen = false;
+          state.rulesOpen = false;
+          state.historyDrawerOpen = false;
+          state.backConfirmOpen = false;
           state.onlineError = firebaseInitError;
           state.phase = "title";
           render();
@@ -2017,16 +2026,22 @@
                       <p class="mt-1 text-sm text-slate-600">10 pts unique word · 5 pts shared word · 0 pts blank or wrong letter</p>
                     </div>
                   </div>
-                  <div class="inline-flex self-start rounded-lg bg-slate-100 p-1">
-                    ${[
-                      { id: "bilingual", label: "ML + EN" },
-                      { id: "english", label: "English" },
-                      { id: "malayalam", label: "മലയാളം" },
-                    ].map((l) => `
-                      <button type="button" data-action="set-lang" data-lang="${l.id}"
-                        class="rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap ${
-                          state.language === l.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                        }">${l.label}</button>`).join("")}
+                  <div class="flex flex-wrap items-center gap-2 self-start">
+                    <div class="inline-flex rounded-lg bg-slate-100 p-1">
+                      ${[
+                        { id: "bilingual", label: "ML + EN" },
+                        { id: "english", label: "English" },
+                        { id: "malayalam", label: "മലയാളം" },
+                      ].map((l) => `
+                        <button type="button" data-action="set-lang" data-lang="${l.id}"
+                          class="rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap ${
+                            state.language === l.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                          }">${l.label}</button>`).join("")}
+                    </div>
+                    <button type="button" data-action="open-rules"
+                      class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 whitespace-nowrap">
+                      Rules
+                    </button>
                   </div>
                 </section>
 
@@ -3001,6 +3016,91 @@
 
           const totalChallenged = roundHistoryEntries.reduce((sum, entry) => sum + entry.challenged.length, 0);
 
+          const historyBodyHtml = `
+            <div>
+              <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Chosen Letters</p>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                ${roundHistoryEntries.map((entry) => `
+                  <span class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800">
+                    <span class="font-mono-tabular text-[11px] text-slate-500">R${entry.roundNumber}</span>
+                    <span class="font-display font-extrabold text-emerald-800">${escapeHtml(entry.letter)}</span>
+                  </span>`).join("")}
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              ${roundHistoryEntries.map((entry) => `
+                <section class="rounded-lg border border-slate-200/90 bg-slate-50/50 p-3.5 space-y-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="inline-flex min-w-[1.75rem] items-center justify-center rounded-md bg-emerald-700 px-2 py-0.5 font-display text-xs font-extrabold text-white whitespace-nowrap">${escapeHtml(entry.letter)}</span>
+                      <h3 class="text-xs font-bold text-slate-900">Round ${entry.roundNumber}</h3>
+                    </div>
+                    ${entry.challenged.length > 0
+                      ? `<span class="font-mono-tabular text-[11px] font-semibold text-amber-700">${entry.challenged.length} challenged</span>`
+                      : `<span class="font-mono-tabular text-[11px] text-slate-400">No challenges</span>`}
+                  </div>
+
+                  <div class="space-y-2">
+                    ${entry.sortedPlayers.map((ps) => {
+                      const pct = Math.max(0, Math.min(100, Math.round((ps.roundTotal / 50) * 100)));
+                      return `
+                        <div class="space-y-1">
+                          <div class="flex items-baseline justify-between gap-2 text-xs">
+                            <span class="truncate font-semibold text-slate-800">${escapeHtml(ps.playerName)}</span>
+                            <span class="shrink-0 font-mono-tabular text-slate-600">
+                              <span class="text-[11px] text-slate-400 mr-1.5">${ps.uniqueCount}U · ${ps.sharedCount}S</span>
+                              <span class="font-bold text-slate-900">${ps.roundTotal} pts</span>
+                            </span>
+                          </div>
+                          <div class="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80">
+                            <div class="h-full rounded-full bg-emerald-600" style="width:${pct}%"></div>
+                          </div>
+                        </div>`;
+                    }).join("")}
+                  </div>
+
+                  ${entry.challenged.length > 0 ? `
+                    <div class="border-t border-slate-200/80 pt-2.5 space-y-2">
+                      <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Challenged Words</p>
+                      <ul class="space-y-1.5">
+                        ${entry.challenged.map((ch) => {
+                          const isRejected = ch.decision === "invalid" || ch.decision === "rejected";
+                          const isDuplicate = ch.decision === "duplicate";
+                          const isApproved = ch.decision === "valid" || ch.decision === "approved";
+                          const statusColor = isRejected ? "text-red-700" : isDuplicate ? "text-amber-700" : isApproved ? "text-emerald-700" : "text-amber-700";
+                          const statusLabel = isRejected
+                            ? "Disapproved · +0"
+                            : isDuplicate
+                              ? "Match / Same · +5"
+                              : isApproved
+                                ? `Approved · +${ch.points}`
+                                : `Ruled · +${ch.points}`;
+                          return `
+                            <li class="rounded-md border border-slate-200/80 bg-white px-2.5 py-2 text-xs">
+                              <div class="flex items-baseline justify-between gap-2">
+                                <span class="font-semibold break-words ${isRejected ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(ch.word)}</span>
+                                <span class="shrink-0 font-mono-tabular text-[11px] font-semibold ${statusColor}">${statusLabel}</span>
+                              </div>
+                              <p class="mt-0.5 text-[11px] text-slate-500">
+                                ${escapeHtml(ch.playerName)} · ${escapeHtml(ch.categoryLabel)}
+                              </p>
+                              <p class="mt-0.5 text-[11px] ${statusColor}">
+                                ${escapeHtml(ch.reason)}
+                              </p>
+                            </li>`;
+                        }).join("")}
+                      </ul>
+                    </div>` : ""}
+                </section>`).join("")}
+            </div>
+
+            ${totalChallenged === 0 ? `
+              <p class="border-t border-slate-100 pt-3 text-xs text-slate-500">
+                No words were challenged during this match.
+              </p>` : ""}
+          `;
+
           return `
             <canvas id="podium-confetti-canvas" aria-hidden="true" class="pointer-events-none fixed inset-0 z-40 h-full w-full"></canvas>
             <main class="relative z-10 mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
@@ -3010,6 +3110,13 @@
                     <p class="text-xs font-semibold text-emerald-700">Match Complete · ${resultsList.length} ${resultsList.length === 1 ? "Round" : "Rounds"} Played</p>
                     <h1 class="mt-1 font-display text-3xl font-extrabold text-slate-900 sm:text-4xl">${escapeHtml(headline)}</h1>
                     ${winner ? `<p class="mt-2 text-sm text-slate-600 font-mono-tabular">${winner.totalScore} total points · ${winner.uniqueCount} unique · ${winner.sharedCount} shared</p>` : ""}
+                    <div class="mt-4 lg:hidden">
+                      <button type="button" data-action="open-history-drawer"
+                        class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100">
+                        <span>Game History</span>
+                        <span class="font-mono-tabular text-[11px] text-slate-500">${resultsList.length}R · ${totalChallenged} challenged</span>
+                      </button>
+                    </div>
                   </section>
 
                   <section class="grid gap-4 items-end ${slots.length === 3 ? "sm:grid-cols-3" : slots.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1 max-w-sm mx-auto"}">
@@ -3053,7 +3160,7 @@
                   </div>
                 </div>
 
-                <aside aria-label="Game History" id="podium-history-sidebar" class="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5 lg:sticky lg:top-6">
+                <aside aria-label="Game History" id="podium-history-sidebar" class="hidden lg:block lg:col-span-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5 lg:sticky lg:top-6">
                   <div class="flex items-baseline justify-between gap-3 border-b border-slate-100 pb-3.5">
                     <div>
                       <h2 class="font-display text-base font-extrabold text-slate-900">Game History</h2>
@@ -3062,92 +3169,111 @@
                       </p>
                     </div>
                   </div>
-
-                  <div>
-                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Chosen Letters</p>
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                      ${roundHistoryEntries.map((entry) => `
-                        <span class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800">
-                          <span class="font-mono-tabular text-[11px] text-slate-500">R${entry.roundNumber}</span>
-                          <span class="font-display font-extrabold text-emerald-800">${escapeHtml(entry.letter)}</span>
-                        </span>`).join("")}
-                    </div>
-                  </div>
-
-                  <div class="space-y-4">
-                    ${roundHistoryEntries.map((entry) => `
-                      <section class="rounded-lg border border-slate-200/90 bg-slate-50/50 p-3.5 space-y-3">
-                        <div class="flex items-center justify-between gap-2">
-                          <div class="flex items-center gap-2 min-w-0">
-                            <span class="inline-flex min-w-[1.75rem] items-center justify-center rounded-md bg-emerald-700 px-2 py-0.5 font-display text-xs font-extrabold text-white whitespace-nowrap">${escapeHtml(entry.letter)}</span>
-                            <h3 class="text-xs font-bold text-slate-900">Round ${entry.roundNumber}</h3>
-                          </div>
-                          ${entry.challenged.length > 0
-                            ? `<span class="font-mono-tabular text-[11px] font-semibold text-amber-700">${entry.challenged.length} challenged</span>`
-                            : `<span class="font-mono-tabular text-[11px] text-slate-400">No challenges</span>`}
-                        </div>
-
-                        <div class="space-y-2">
-                          ${entry.sortedPlayers.map((ps) => {
-                            const pct = Math.max(0, Math.min(100, Math.round((ps.roundTotal / 50) * 100)));
-                            return `
-                              <div class="space-y-1">
-                                <div class="flex items-baseline justify-between gap-2 text-xs">
-                                  <span class="truncate font-semibold text-slate-800">${escapeHtml(ps.playerName)}</span>
-                                  <span class="shrink-0 font-mono-tabular text-slate-600">
-                                    <span class="text-[11px] text-slate-400 mr-1.5">${ps.uniqueCount}U · ${ps.sharedCount}S</span>
-                                    <span class="font-bold text-slate-900">${ps.roundTotal} pts</span>
-                                  </span>
-                                </div>
-                                <div class="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80">
-                                  <div class="h-full rounded-full bg-emerald-600" style="width:${pct}%"></div>
-                                </div>
-                              </div>`;
-                          }).join("")}
-                        </div>
-
-                        ${entry.challenged.length > 0 ? `
-                          <div class="border-t border-slate-200/80 pt-2.5 space-y-2">
-                            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Challenged Words</p>
-                            <ul class="space-y-1.5">
-                              ${entry.challenged.map((ch) => {
-                                const isRejected = ch.decision === "invalid" || ch.decision === "rejected";
-                                const isDuplicate = ch.decision === "duplicate";
-                                const isApproved = ch.decision === "valid" || ch.decision === "approved";
-                                const statusColor = isRejected ? "text-red-700" : isDuplicate ? "text-amber-700" : isApproved ? "text-emerald-700" : "text-amber-700";
-                                const statusLabel = isRejected
-                                  ? "Disapproved · +0"
-                                  : isDuplicate
-                                    ? "Match / Same · +5"
-                                    : isApproved
-                                      ? `Approved · +${ch.points}`
-                                      : `Ruled · +${ch.points}`;
-                                return `
-                                  <li class="rounded-md border border-slate-200/80 bg-white px-2.5 py-2 text-xs">
-                                    <div class="flex items-baseline justify-between gap-2">
-                                      <span class="font-semibold break-words ${isRejected ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(ch.word)}</span>
-                                      <span class="shrink-0 font-mono-tabular text-[11px] font-semibold ${statusColor}">${statusLabel}</span>
-                                    </div>
-                                    <p class="mt-0.5 text-[11px] text-slate-500">
-                                      ${escapeHtml(ch.playerName)} · ${escapeHtml(ch.categoryLabel)}
-                                    </p>
-                                    <p class="mt-0.5 text-[11px] ${statusColor}">
-                                      ${escapeHtml(ch.reason)}
-                                    </p>
-                                  </li>`;
-                              }).join("")}
-                            </ul>
-                          </div>` : ""}
-                      </section>`).join("")}
-                  </div>
-
-                  ${totalChallenged === 0 ? `
-                    <p class="border-t border-slate-100 pt-3 text-xs text-slate-500">
-                      No words were challenged during this match.
-                    </p>` : ""}
+                  ${historyBodyHtml}
                 </aside>
               </div>
-            </main>`;
+            </main>
+            ${state.historyDrawerOpen ? `
+              <div id="podium-history-drawer" role="dialog" aria-modal="true" aria-label="Game History" class="fixed inset-0 z-50 flex justify-end bg-slate-950/45 backdrop-blur-[1px]">
+                <div data-action="close-history-drawer" class="flex-1"></div>
+                <div class="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+                  <div class="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                    <div>
+                      <h2 class="font-display text-base font-extrabold text-slate-900">Game History</h2>
+                      <p class="mt-0.5 text-xs text-slate-500 font-mono-tabular">
+                        ${resultsList.length} ${resultsList.length === 1 ? "round" : "rounds"} · ${totalChallenged} ${totalChallenged === 1 ? "word" : "words"} challenged
+                      </p>
+                    </div>
+                    <button type="button" data-action="close-history-drawer" aria-label="Close Game History"
+                      class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+                      ✕
+                    </button>
+                  </div>
+                  <div class="flex-1 overflow-y-auto p-5 space-y-5">
+                    ${historyBodyHtml}
+                  </div>
+                </div>
+              </div>` : ""}`;
+        }
+
+        function renderRulesModal() {
+          if (!state.rulesOpen) return "";
+          return `
+            <div id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-modal-title"
+              class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[1px]">
+              <div data-action="close-rules" class="absolute inset-0"></div>
+              <div class="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+                <div class="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 bg-slate-50/70">
+                  <div>
+                    <p class="text-[11px] font-semibold text-emerald-700">നിയമങ്ങൾ · How to Play</p>
+                    <h2 id="rules-modal-title" class="font-display text-lg font-extrabold text-slate-900">Game Rules &amp; Scoring</h2>
+                  </div>
+                  <button type="button" data-action="close-rules" aria-label="Close rules"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100">
+                    ✕
+                  </button>
+                </div>
+                <div class="max-h-[75vh] overflow-y-auto p-5 space-y-4 text-xs sm:text-sm text-slate-700 leading-relaxed">
+                  <div class="space-y-1">
+                    <h3 class="font-bold text-slate-900">5 Categories</h3>
+                    <p>Fill in a valid word starting with the round's letter for: <strong>പേര് (Name)</strong>, <strong>സ്ഥലം (Place)</strong>, <strong>മൃഗം / പക്ഷി / മത്സ്യം</strong>, <strong>പൂവ് / പഴം / പച്ചക്കറി</strong>, and <strong>സാധനം (Thing)</strong>.</p>
+                  </div>
+                  <div class="space-y-1">
+                    <h3 class="font-bold text-slate-900">10 / 5 / 0 Scoring</h3>
+                    <ul class="list-disc pl-5 space-y-1">
+                      <li><strong class="text-emerald-700">10 pts (Unique):</strong> Valid word that no other player wrote.</li>
+                      <li><strong class="text-amber-700">5 pts (Match / Shared):</strong> Same word written by 2+ players, or marked by the Room Admin as a spelling / Malayalam-Manglish match.</li>
+                      <li><strong class="text-red-700">0 pts (Invalid):</strong> Blank, wrong starting letter, or disapproved by the Room Admin.</li>
+                    </ul>
+                  </div>
+                  <div class="space-y-1">
+                    <h3 class="font-bold text-slate-900">Malayalam Clubbed Letters &amp; Manglish</h3>
+                    <p>When Malayalam mode is active, related sounds are clubbed (e.g., <strong>ക / ഖ</strong>, <strong>ല / ള</strong>, <strong>ശ / ഷ / സ</strong>). Both Malayalam script and Manglish spellings are supported.</p>
+                  </div>
+                  <div class="space-y-1">
+                    <h3 class="font-bold text-slate-900">Admin Rulings &amp; Review Chat</h3>
+                    <p>Only the Room Admin can apply 10 / 5 / 0 score rulings. All players can use Review Chat during review to explain a word or request a 5-point match.</p>
+                  </div>
+                </div>
+                <div class="border-t border-slate-200 bg-slate-50/70 px-5 py-3 flex justify-end">
+                  <button type="button" data-action="close-rules"
+                    class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800">
+                    Got It
+                  </button>
+                </div>
+              </div>
+            </div>`;
+        }
+
+        function renderBackConfirmModal() {
+          if (!state.backConfirmOpen) return "";
+          const isOnline = state.mode === "online" && state.room;
+          return `
+            <div id="back-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="back-confirm-title"
+              class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-[1px]">
+              <div data-action="back-confirm-stay" class="absolute inset-0"></div>
+              <div class="relative z-10 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
+                <div class="space-y-1">
+                  <p class="text-xs font-semibold text-amber-700">കളിയിൽ നിന്ന് പുറത്തുപോകണോ?</p>
+                  <h2 id="back-confirm-title" class="font-display text-lg font-extrabold text-slate-900">Leave current game?</h2>
+                  <p class="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                    ${isOnline
+                      ? "Your online match is currently in progress. Stay to continue playing, or leave to return to the home screen."
+                      : "Your current round progress is still active. Stay to continue playing, or leave to return to the home screen."}
+                  </p>
+                </div>
+                <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end pt-1">
+                  <button type="button" data-action="back-confirm-leave"
+                    class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100">
+                    Leave · പുറത്തുപോകുക
+                  </button>
+                  <button type="button" data-action="back-confirm-stay"
+                    class="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 shadow-xs">
+                    Stay · തുടരുക
+                  </button>
+                </div>
+              </div>
+            </div>`;
         }
 
         // =====================================================================
@@ -3379,16 +3505,28 @@
           if (state.phase !== "appeal" && state.reviewMenuOpen) {
             state.reviewMenuOpen = false;
           }
+          if (state.phase !== "title" && state.rulesOpen) {
+            state.rulesOpen = false;
+          }
+          if (state.phase !== "gameover" && state.historyDrawerOpen) {
+            state.historyDrawerOpen = false;
+          }
+          if (!isProtectedActivePhase(state.phase) && state.backConfirmOpen) {
+            state.backConfirmOpen = false;
+          }
 
           document.body.dataset.state = state.paused && state.phase === "playing" ? "paused" : state.phase;
           const root = document.getElementById("app");
-          if (state.phase === "title") root.innerHTML = renderTitle();
-          else if (state.phase === "lobby") root.innerHTML = renderLobby();
-          else if (state.phase === "handoff") root.innerHTML = renderHandoff();
-          else if (state.phase === "playing") root.innerHTML = renderPlaying();
-          else if (state.phase === "appeal") root.innerHTML = renderAppeal();
-          else if (state.phase === "results") root.innerHTML = renderResults();
-          else if (state.phase === "gameover") root.innerHTML = renderPodium();
+          let screenHtml = "";
+          if (state.phase === "title") screenHtml = renderTitle() + renderRulesModal();
+          else if (state.phase === "lobby") screenHtml = renderLobby();
+          else if (state.phase === "handoff") screenHtml = renderHandoff();
+          else if (state.phase === "playing") screenHtml = renderPlaying();
+          else if (state.phase === "appeal") screenHtml = renderAppeal();
+          else if (state.phase === "results") screenHtml = renderResults();
+          else if (state.phase === "gameover") screenHtml = renderPodium();
+
+          root.innerHTML = screenHtml + renderBackConfirmModal();
 
           if (state.phase === "appeal" || state.phase === "lobby") {
             const listId = state.phase === "lobby" ? "lobby-chat-list" : "review-chat-list";
@@ -3420,8 +3558,9 @@
           }
 
           saveGameState();
+          syncHistoryWithState();
 
-          if (state.phase === "playing" && !state.paused && !state.submittedOnline) {
+          if (state.phase === "playing" && !state.paused && !state.submittedOnline && !state.backConfirmOpen) {
             const first = document.getElementById("cat-name");
             if (first && document.activeElement === document.body) first.focus();
           }
@@ -3501,9 +3640,31 @@
             }
             return;
           }
-          if (e.key === "Escape" && state.phase === "playing" && state.mode !== "online") {
-            state.paused = !state.paused;
-            render();
+          if (e.key === "Escape") {
+            if (state.backConfirmOpen) {
+              state.backConfirmOpen = false;
+              render();
+              return;
+            }
+            if (state.rulesOpen) {
+              state.rulesOpen = false;
+              render();
+              return;
+            }
+            if (state.reviewMenuOpen) {
+              state.reviewMenuOpen = false;
+              render();
+              return;
+            }
+            if (state.historyDrawerOpen) {
+              state.historyDrawerOpen = false;
+              render();
+              return;
+            }
+            if (state.phase === "playing" && state.mode !== "online") {
+              state.paused = !state.paused;
+              render();
+            }
           }
         });
 
@@ -3602,6 +3763,30 @@
             soundFx.playStart();
             startTimer();
             render();
+          }
+          else if (act === "open-rules") {
+            state.rulesOpen = true;
+            render();
+          }
+          else if (act === "close-rules") {
+            state.rulesOpen = false;
+            render();
+          }
+          else if (act === "open-history-drawer") {
+            state.historyDrawerOpen = true;
+            render();
+          }
+          else if (act === "close-history-drawer") {
+            state.historyDrawerOpen = false;
+            render();
+          }
+          else if (act === "back-confirm-stay") {
+            state.backConfirmOpen = false;
+            render();
+          }
+          else if (act === "back-confirm-leave") {
+            state.backConfirmOpen = false;
+            resetGameToMenu();
           }
           else if (act === "toggle-review-menu") {
             state.reviewMenuOpen = !state.reviewMenuOpen;
@@ -3763,7 +3948,171 @@
           if (document.visibilityState === "hidden") saveGameState();
         });
 
+        // =====================================================================
+        // 10. NATIVE PHONE BACK BUTTON NAVIGATION (HISTORY API)
+        // =====================================================================
+        let pendingProgrammaticBacks = 0;
+        let currentHistoryKey = "";
+        let historyInitialized = false;
+
+        function isProtectedActivePhase(phase) {
+          return phase === "handoff" || phase === "playing" || phase === "appeal" || phase === "results";
+        }
+
+        function getNavigationSnapshot() {
+          const overlay = state.backConfirmOpen
+            ? "confirm-exit"
+            : state.rulesOpen
+              ? "rules"
+              : state.reviewMenuOpen
+                ? "review-menu"
+                : state.historyDrawerOpen
+                  ? "history-drawer"
+                  : state.phase === "playing" && state.paused
+                    ? "pause"
+                    : "";
+          return {
+            phase: state.phase,
+            overlay,
+            key: `${state.phase}|${overlay}`,
+          };
+        }
+
+        function initHistoryNavigation() {
+          if (historyInitialized || !window.history || !window.history.replaceState) return;
+          historyInitialized = true;
+          const snap = getNavigationSnapshot();
+          try {
+            window.history.replaceState({ npat: true, phase: "title", overlay: "", key: "title|" }, "", window.location.href);
+            currentHistoryKey = "title|";
+            if (snap.key !== "title|") {
+              window.history.pushState({ npat: true, ...snap }, "", window.location.href);
+              currentHistoryKey = snap.key;
+            }
+          } catch {
+            currentHistoryKey = snap.key;
+          }
+        }
+
+        function syncHistoryWithState() {
+          if (!window.history || !window.history.pushState) return;
+          if (!historyInitialized) {
+            initHistoryNavigation();
+            return;
+          }
+          const snap = getNavigationSnapshot();
+          if (snap.key === currentHistoryKey) return;
+
+          const [prevPhase, prevOverlay] = currentHistoryKey.split("|");
+          const nextPhase = snap.phase;
+          const nextOverlay = snap.overlay;
+
+          try {
+            // Dismissing the leave-confirmation modal ("Stay") keeps the active game guard entry in place
+            if (prevOverlay === "confirm-exit" && !nextOverlay && nextPhase === prevPhase) {
+              window.history.replaceState({ npat: true, ...snap }, "", window.location.href);
+              currentHistoryKey = snap.key;
+              return;
+            }
+
+            // Closing an overlay/drawer via UI button on the same screen pops its pushed history state cleanly
+            if (prevPhase === nextPhase && prevOverlay && !nextOverlay) {
+              currentHistoryKey = snap.key;
+              pendingProgrammaticBacks += 1;
+              window.history.back();
+              return;
+            }
+
+            // Returning cleanly to root Title screen without overlays
+            if (nextPhase === "title" && !nextOverlay) {
+              window.history.replaceState({ npat: true, ...snap }, "", window.location.href);
+              currentHistoryKey = snap.key;
+              return;
+            }
+
+            // Navigating to a new screen or opening an overlay/drawer pushes a fresh history state
+            window.history.pushState({ npat: true, ...snap }, "", window.location.href);
+            currentHistoryKey = snap.key;
+          } catch {
+            currentHistoryKey = snap.key;
+          }
+        }
+
+        window.addEventListener("popstate", () => {
+          if (pendingProgrammaticBacks > 0) {
+            pendingProgrammaticBacks -= 1;
+            return;
+          }
+
+          // 1. If leave confirmation modal is open, Back dismisses it ("Stay") and keeps the guard armed
+          if (state.backConfirmOpen) {
+            state.backConfirmOpen = false;
+            const guardSnap = { npat: true, phase: state.phase, overlay: "", key: `${state.phase}|` };
+            try {
+              window.history.pushState(guardSnap, "", window.location.href);
+            } catch {}
+            currentHistoryKey = guardSnap.key;
+            render();
+            return;
+          }
+
+          // 2. Close open overlays/drawers first instead of leaving the screen
+          if (state.rulesOpen) {
+            state.rulesOpen = false;
+            currentHistoryKey = `${state.phase}|`;
+            render();
+            return;
+          }
+          if (state.reviewMenuOpen) {
+            state.reviewMenuOpen = false;
+            currentHistoryKey = `${state.phase}|`;
+            render();
+            return;
+          }
+          if (state.historyDrawerOpen) {
+            state.historyDrawerOpen = false;
+            currentHistoryKey = `${state.phase}|`;
+            render();
+            return;
+          }
+          if (state.phase === "playing" && state.paused) {
+            state.paused = false;
+            currentHistoryKey = `${state.phase}|`;
+            render();
+            return;
+          }
+
+          // 3. Secondary screens navigate cleanly back inside the app without exiting browser tab
+          if (state.phase === "lobby") {
+            currentHistoryKey = "title|";
+            leaveOnlineRoom();
+            return;
+          }
+          if (state.phase === "gameover") {
+            currentHistoryKey = "title|";
+            resetGameToMenu();
+            return;
+          }
+
+          // 4. Protect active gameplay & review sessions from accidental back-exit
+          if (isProtectedActivePhase(state.phase)) {
+            state.backConfirmOpen = true;
+            const confirmSnap = {
+              npat: true,
+              phase: state.phase,
+              overlay: "confirm-exit",
+              key: `${state.phase}|confirm-exit`,
+            };
+            try {
+              window.history.pushState(confirmSnap, "", window.location.href);
+            } catch {}
+            currentHistoryKey = confirmSnap.key;
+            render();
+          }
+        });
+
         restoreGameState();
+        initHistoryNavigation();
         render();
       })();
     </script>
