@@ -135,6 +135,13 @@
         transform: translateY(-10px) scale(0.97);
         transition: opacity 0.22s ease, transform 0.22s ease;
       }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
       @media (prefers-reduced-motion: reduce) {
         .lobby-float-emoji {
           animation-duration: 0.9s;
@@ -835,6 +842,10 @@
           reviewingPlayerId: "",
           reviewMessages: [],
           reviewChatDraft: "",
+          reviewCategoryFilter: "all", // all | name | place | animal | plant | thing
+          reviewChatOpen: false,
+          reviewChatSeenCount: 0,
+          reviewChatSeenKey: "",
           reviewMenuOpen: false,
           rulesOpen: false,
           historyDrawerOpen: false,
@@ -1000,20 +1011,42 @@
         }
 
         function jumpToReviewChatPanel() {
+          if (state.phase !== "appeal") return;
+          if (!state.reviewChatOpen) {
+            state.reviewChatOpen = true;
+            render();
+          }
           const panel = document.getElementById("review-chat-panel");
-          if (!panel) return;
-          panel.scrollIntoView({ behavior: "smooth", block: "start" });
           const list = document.getElementById("review-chat-list");
           if (list) list.scrollTop = list.scrollHeight;
-          panel.classList.add("ring-2", "ring-emerald-500", "ring-offset-2");
-          if (reviewChatHighlightTimer) clearTimeout(reviewChatHighlightTimer);
-          reviewChatHighlightTimer = setTimeout(() => {
-            panel.classList.remove("ring-2", "ring-emerald-500", "ring-offset-2");
-          }, 1400);
+          if (panel) {
+            panel.classList.add("ring-2", "ring-emerald-500", "ring-inset");
+            if (reviewChatHighlightTimer) clearTimeout(reviewChatHighlightTimer);
+            reviewChatHighlightTimer = setTimeout(() => {
+              panel.classList.remove("ring-2", "ring-emerald-500", "ring-inset");
+            }, 1200);
+          }
         }
 
         function jumpToReviewCell(cellKey) {
           if (!cellKey) return;
+          const parsed = parseAppealKey(cellKey);
+          let needsRender = false;
+          if (state.reviewChatOpen) {
+            state.reviewChatOpen = false;
+            needsRender = true;
+          }
+          if (
+            state.phase === "appeal" &&
+            parsed &&
+            state.reviewCategoryFilter !== "all" &&
+            state.reviewCategoryFilter !== parsed.catId
+          ) {
+            state.reviewCategoryFilter = parsed.catId;
+            needsRender = true;
+          }
+          if (needsRender) render();
+
           const cells = Array.from(document.querySelectorAll("[data-review-cell]"));
           const target = cells.find((el) => el.getAttribute("data-review-cell") === cellKey);
           if (!target) return;
@@ -3243,212 +3276,374 @@
             .filter((m) => !m.round || Number(m.round) === Number(result.roundNumber))
             .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
+          // Track unread count per room/round cleanly
+          const seenKey = `${isOnline ? state.room.roomCode : "local"}|${result.roundNumber}`;
+          if (state.reviewChatSeenKey !== seenKey) {
+            state.reviewChatSeenKey = seenKey;
+            state.reviewChatSeenCount = state.reviewChatOpen ? roundMessages.length : 0;
+          }
+          if (state.reviewChatOpen) {
+            state.reviewChatSeenCount = roundMessages.length;
+          }
+          const unreadCount = Math.max(0, roundMessages.length - (state.reviewChatSeenCount || 0));
+
           const rulingCount = result.playerScores.reduce((acc, ps) => {
             return acc + CATEGORIES.filter((cat) => ps.cells[cat.id].appealDecision !== "auto").length;
           }, 0);
 
+          const activeCatFilter =
+            state.reviewCategoryFilter === "all" || CATEGORIES.some((c) => c.id === state.reviewCategoryFilter)
+              ? state.reviewCategoryFilter
+              : "all";
+          const visibleCategories =
+            activeCatFilter === "all"
+              ? CATEGORIES
+              : CATEGORIES.filter((c) => c.id === activeCatFilter);
+
+          const getShortCategoryPillLabel = (cat) => {
+            if (state.language === "english") {
+              if (cat.id === "animal") return "Animal…";
+              if (cat.id === "plant") return "Flower…";
+              return cat.en;
+            }
+            if (cat.id === "animal") return "മൃഗം…";
+            if (cat.id === "plant") return "പൂവ്…";
+            return cat.ml;
+          };
+
+          const getCompactStatusChip = (c) => {
+            if (c.appealDecision === "invalid" || c.appealDecision === "rejected") {
+              return { text: "Disapproved", cls: "bg-red-50 text-red-700 ring-1 ring-red-200/80" };
+            }
+            if (c.appealDecision === "duplicate") {
+              return { text: "Match", cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-200/90" };
+            }
+            if (c.appealDecision === "valid" || c.appealDecision === "approved") {
+              return { text: "Admin OK", cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80" };
+            }
+            if (c.status === "unique") {
+              return { text: "Unique", cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80" };
+            }
+            if (c.status === "shared") {
+              return { text: "Shared", cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-200/80" };
+            }
+            if (!c.raw.trim()) {
+              return { text: "Blank", cls: "bg-slate-100 text-slate-500" };
+            }
+            return { text: "Wrong letter", cls: "bg-red-50 text-red-700 ring-1 ring-red-200/80" };
+          };
+
           const menuOpen = Boolean(state.reviewMenuOpen);
+          const chatOpen = Boolean(state.reviewChatOpen);
 
           return `
-            <main class="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-8 space-y-4 sm:space-y-6">
-              <section class="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
-                <div class="flex items-start gap-3.5 sm:items-center sm:gap-4 min-w-0">
+            <main class="mx-auto max-w-6xl px-3.5 py-4 pb-20 sm:px-8 sm:py-7 sm:pb-24 space-y-3.5 sm:space-y-5">
+              <!-- Compact Review Header -->
+              <section class="flex flex-col gap-2.5 border-b border-slate-200 pb-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-center gap-3 sm:gap-4 min-w-0">
                   <div class="${getLetterBadgeStyle(result.letter, "card")} shrink-0 items-center justify-center rounded-xl bg-amber-600 font-display font-extrabold text-white">${escapeHtml(result.letter)}</div>
                   <div class="min-w-0">
-                    <p class="text-xs font-semibold text-amber-700">അപ്പീൽ &amp; റിവ്യൂ · Round ${result.roundNumber} of ${totalRounds}</p>
-                    <h1 class="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">Appeal &amp; Review Answers</h1>
-                    <p class="mt-0.5 text-xs text-slate-500">
+                    <p class="text-[11px] sm:text-xs font-semibold text-amber-700">അപ്പീൽ &amp; റിവ്യൂ · Round ${result.roundNumber} of ${totalRounds}</p>
+                    <h1 class="font-display text-lg sm:text-2xl font-extrabold text-slate-900 leading-tight truncate">Appeal &amp; Review</h1>
+                    <p class="mt-0.5 text-[11px] sm:text-xs text-slate-500 truncate">
                       ${isAdmin
-                        ? `Room Admin (${escapeHtml(adminName)}) · Review answers for "${escapeHtml(result.letter)}"`
-                        : `Room Admin: ${escapeHtml(adminName)} · Use Review Chat to appeal`}
+                        ? `Room Admin (${escapeHtml(adminName)}) · ${rulingCount} ${rulingCount === 1 ? "ruling" : "rulings"}`
+                        : `Room Admin: ${escapeHtml(adminName)} · ${rulingCount} ${rulingCount === 1 ? "ruling" : "rulings"}`}
                     </p>
                   </div>
                 </div>
-                <div class="flex flex-wrap items-center justify-between gap-2 sm:justify-end sm:gap-3 shrink-0">
-                  <div class="flex items-center gap-2.5 text-xs font-semibold text-slate-600 font-mono-tabular">
-                    <span>${rulingCount} ${rulingCount === 1 ? "ruling" : "rulings"}</span>
-                    <span class="text-slate-300">·</span>
-                    <span>${roundMessages.length} ${roundMessages.length === 1 ? "msg" : "msgs"}</span>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <button type="button" data-action="jump-review-chat"
-                      class="lg:hidden inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">
-                      <span>Chat (${roundMessages.length})</span>
-                      <span aria-hidden="true">↓</span>
+                <div class="flex items-center justify-between gap-2 sm:justify-end shrink-0">
+                  <button type="button" data-action="toggle-review-chat"
+                    aria-expanded="${chatOpen}" aria-controls="review-chat-drawer"
+                    class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-colors whitespace-nowrap">
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+                      <path fill-rule="evenodd" d="M10 2c-4.418 0-8 2.91-8 6.5 0 1.693.79 3.235 2.092 4.393L3.1 16.2a.75.75 0 00.973.92l3.437-1.26c.786.22 1.622.34 2.49.34 4.418 0 8-2.91 8-6.5S14.418 2 10 2z" clip-rule="evenodd" />
+                    </svg>
+                    <span>Review Chat</span>
+                    ${unreadCount > 0
+                      ? `<span class="inline-flex min-w-[18px] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 font-mono-tabular text-[10px] font-extrabold text-white leading-none">${unreadCount}</span>`
+                      : `<span class="font-mono-tabular text-[11px] text-emerald-700/80">(${roundMessages.length})</span>`}
+                  </button>
+                  <div id="review-top-menu" class="relative">
+                    <button id="review-menu-btn" type="button" data-action="toggle-review-menu"
+                      aria-haspopup="menu" aria-expanded="${menuOpen}" aria-label="Review options menu"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900">
+                      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M3 5h14M3 10h14M3 15h14" />
+                      </svg>
                     </button>
-                    <div id="review-top-menu" class="relative">
-                      <button id="review-menu-btn" type="button" data-action="toggle-review-menu"
-                        aria-haspopup="menu" aria-expanded="${menuOpen}" aria-label="Review options menu"
-                        class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900">
-                        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                          <path d="M3 5h14M3 10h14M3 15h14" />
-                        </svg>
-                      </button>
-                      ${menuOpen ? `
-                        <div role="menu" aria-labelledby="review-menu-btn"
-                          class="absolute right-0 mt-2 w-52 origin-top-right rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg z-30">
-                          <button type="button" role="menuitem" data-action="toggle-mute"
-                            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                            <span>Sound Effects</span>
-                            <span class="font-mono-tabular text-[11px] text-slate-500">${soundFx.muted ? "Muted" : "On"}</span>
-                          </button>
-                          <div class="my-1 border-t border-slate-100"></div>
-                          <button type="button" role="menuitem" data-action="reset-game"
-                            class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50">
-                            <span>New Game / Reset</span>
-                            <span aria-hidden="true">↺</span>
-                          </button>
-                        </div>` : ""}
-                    </div>
+                    ${menuOpen ? `
+                      <div role="menu" aria-labelledby="review-menu-btn"
+                        class="absolute right-0 mt-2 w-52 origin-top-right rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg z-30">
+                        <button type="button" role="menuitem" data-action="toggle-mute"
+                          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                          <span>Sound Effects</span>
+                          <span class="font-mono-tabular text-[11px] text-slate-500">${soundFx.muted ? "Muted" : "On"}</span>
+                        </button>
+                        <div class="my-1 border-t border-slate-100"></div>
+                        <button type="button" role="menuitem" data-action="reset-game"
+                          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50">
+                          <span>New Game / Reset</span>
+                          <span aria-hidden="true">↺</span>
+                        </button>
+                      </div>` : ""}
                   </div>
                 </div>
               </section>
 
               ${passAndPlayHumans.length > 1 ? `
-                <section class="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+                <section class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 shadow-xs">
                   <span class="text-xs font-semibold text-slate-700">Viewing as:</span>
-                  <div class="flex flex-wrap gap-1.5 rounded-lg bg-slate-100 p-1">
+                  <div class="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
                     ${passAndPlayHumans.map((p) => `
                       <button type="button" data-action="set-reviewer" data-rid="${p.id}"
-                        class="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                          reviewerId === p.id ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                        class="rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                          reviewerId === p.id ? "bg-white text-emerald-800 shadow-xs" : "text-slate-600 hover:text-slate-900"
                         }">${escapeHtml(p.name)}${p.id === adminId ? " · Admin" : ""}</button>`).join("")}
                   </div>
                 </section>` : ""}
 
               ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
 
-              <div class="grid gap-5 lg:gap-6 lg:grid-cols-12 items-start">
-                <!-- Answer Review Table & Controls -->
-                <div class="lg:col-span-8 min-w-0 space-y-4 sm:space-y-5">
-                  <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:overflow-x-auto">
-                    <table class="block w-full border-collapse text-left text-sm md:table md:min-w-[600px]">
-                      <thead class="hidden md:table-header-group">
-                        <tr class="border-b border-slate-200 bg-slate-50">
-                          <th class="px-4 py-3.5 font-semibold text-slate-700">Category</th>
+              <!-- Category Filter Pills Bar -->
+              <nav id="review-category-tabs" aria-label="Filter answers by category"
+                class="sticky top-0 z-20 -mx-3.5 px-3.5 py-1.5 sm:static sm:mx-0 sm:px-0 sm:py-0 bg-slate-50/95 sm:bg-transparent backdrop-blur-sm border-b border-slate-200/70 sm:border-0">
+                <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                  <button type="button" data-action="set-review-category" data-cat="all"
+                    aria-pressed="${activeCatFilter === "all"}"
+                    class="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-colors whitespace-nowrap ${
+                      activeCatFilter === "all"
+                        ? "bg-emerald-700 text-white shadow-sm"
+                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                    }">
+                    <span>All</span>
+                    <span class="font-mono-tabular text-[10px] ${activeCatFilter === "all" ? "text-emerald-100" : "text-slate-400"}">5</span>
+                  </button>
+                  ${CATEGORIES.map((cat) => {
+                    const isActive = activeCatFilter === cat.id;
+                    const hasCatRuling = result.playerScores.some((ps) => ps.cells[cat.id].appealDecision !== "auto");
+                    const fullTitle = `${cat.ml} / ${cat.en}`;
+                    return `
+                      <button type="button" data-action="set-review-category" data-cat="${cat.id}"
+                        aria-pressed="${isActive}" title="${escapeHtml(fullTitle)}" aria-label="${escapeHtml(fullTitle)}"
+                        class="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-colors whitespace-nowrap ${
+                          isActive
+                            ? "bg-emerald-700 text-white shadow-sm"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                        }">
+                        <span>${escapeHtml(getShortCategoryPillLabel(cat))}</span>
+                        ${hasCatRuling ? `<span class="h-1.5 w-1.5 rounded-full ${isActive ? "bg-amber-300" : "bg-amber-500"}" aria-hidden="true"></span>` : ""}
+                      </button>`;
+                  }).join("")}
+                </div>
+              </nav>
+
+              <!-- Compact Mobile Player Summary Strip (scores at a glance) -->
+              <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar md:hidden">
+                ${result.playerScores.map((ps) => {
+                  const av = resolveReviewMessageAvatar({ senderId: ps.playerId, senderName: ps.playerName });
+                  const isRowAdmin = ps.playerId === adminId;
+                  return `
+                    <div class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-2.5 py-1 text-xs shadow-sm">
+                      <span class="text-sm leading-none select-none" aria-hidden="true">${escapeHtml(av)}</span>
+                      <span class="max-w-[90px] truncate font-semibold text-slate-800">${escapeHtml(ps.playerName)}${isRowAdmin ? " ★" : ""}</span>
+                      <span class="font-mono-tabular font-extrabold text-emerald-700">${ps.roundTotal}</span>
+                    </div>`;
+                }).join("")}
+              </div>
+
+              <!-- Answer Review Table (Compact Cards on Mobile · Clean Full-Width Table on Desktop) -->
+              <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden md:overflow-x-auto">
+                <table class="block w-full border-collapse text-left text-sm md:table md:min-w-[640px]">
+                  <thead class="hidden md:table-header-group">
+                    <tr class="border-b border-slate-200 bg-slate-50">
+                      <th class="px-4 py-3 font-semibold text-slate-700 w-44">Category</th>
+                      ${result.playerScores.map((ps) => {
+                        const isSelf = ps.playerId === reviewerId;
+                        const isRowAdmin = ps.playerId === adminId;
+                        const av = resolveReviewMessageAvatar({ senderId: ps.playerId, senderName: ps.playerName });
+                        return `
+                          <th class="px-4 py-3 font-bold text-slate-900">
+                            <div class="flex items-center justify-between gap-2">
+                              <span class="inline-flex items-center gap-1.5 truncate">
+                                <span class="text-base leading-none select-none" aria-hidden="true">${escapeHtml(av)}</span>
+                                <span class="truncate">${escapeHtml(ps.playerName)}${isRowAdmin ? ' <span class="text-[11px] font-semibold text-emerald-700">(Admin)</span>' : ""}${isSelf && !isRowAdmin ? ' <span class="text-[11px] font-semibold text-slate-500">(You)</span>' : ""}</span>
+                              </span>
+                              <span class="font-mono-tabular text-xs font-extrabold text-emerald-700 shrink-0">${ps.roundTotal} pts</span>
+                            </div>
+                          </th>`;
+                      }).join("")}
+                    </tr>
+                  </thead>
+                  <tbody class="block divide-y divide-slate-200 md:table-row-group md:divide-y md:divide-slate-100">
+                    ${visibleCategories.map((cat) => {
+                      const lbl = formatCatLabel(cat);
+                      return `
+                        <tr class="block md:table-row hover:bg-slate-50/40">
+                          <td class="block bg-slate-50/90 px-3 py-2 border-b border-slate-200/75 align-top font-bold text-slate-800 md:table-cell md:bg-transparent md:border-0 md:px-4 md:py-3.5">
+                            <div class="flex items-baseline justify-between gap-2 md:block">
+                              <span class="text-xs sm:text-sm">${escapeHtml(lbl.primary)}</span>
+                              ${lbl.secondary ? `<span class="text-[11px] font-medium text-slate-500 md:block md:text-xs md:font-normal">${escapeHtml(lbl.secondary)}</span>` : ""}
+                            </div>
+                          </td>
                           ${result.playerScores.map((ps) => {
+                            const c = ps.cells[cat.id];
+                            const hasWord = c.raw.trim().length > 0;
+                            const isValidNow = c.points > 0;
+                            const activeRuling = c.appealDecision || "auto";
                             const isSelf = ps.playerId === reviewerId;
                             const isRowAdmin = ps.playerId === adminId;
+                            const av = resolveReviewMessageAvatar({ senderId: ps.playerId, senderName: ps.playerName });
+                            const chip = getCompactStatusChip(c);
+                            const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
+
                             return `
-                              <th class="px-4 py-3.5 font-bold text-slate-900">
-                                <div class="flex items-center justify-between gap-2">
-                                  <span class="truncate">
-                                    ${escapeHtml(ps.playerName)}${isRowAdmin ? ' <span class="text-[11px] font-semibold text-emerald-700">(Admin)</span>' : ""}${isSelf && !isRowAdmin ? ' <span class="text-[11px] font-semibold text-slate-500">(You)</span>' : ""}
-                                  </span>
-                                  <span class="font-mono-tabular text-xs font-bold text-emerald-700 shrink-0">${ps.roundTotal} pts</span>
-                                </div>
-                              </th>`;
-                          }).join("")}
-                        </tr>
-                      </thead>
-                      <tbody class="block divide-y divide-slate-200 md:table-row-group md:divide-y md:divide-slate-100">
-                        ${CATEGORIES.map((cat) => {
-                          const lbl = formatCatLabel(cat);
-                          return `
-                            <tr class="block p-3.5 space-y-2.5 hover:bg-slate-50/40 md:table-row md:p-0 md:space-y-0">
-                              <td class="block pb-0.5 align-top font-semibold text-slate-800 md:table-cell md:px-4 md:py-4">
-                                <div class="flex items-baseline justify-between gap-2 md:block">
-                                  <span>${escapeHtml(lbl.primary)}</span>
-                                  ${lbl.secondary ? `<span class="text-xs font-normal text-slate-500 md:block">${escapeHtml(lbl.secondary)}</span>` : ""}
-                                </div>
-                              </td>
-                              ${result.playerScores.map((ps) => {
-                                const c = ps.cells[cat.id];
-                                const hasWord = c.raw.trim().length > 0;
-                                const isValidNow = c.points > 0;
-                                const activeRuling = c.appealDecision || "auto";
-                                const isSelf = ps.playerId === reviewerId;
-                                const isRowAdmin = ps.playerId === adminId;
-                                const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
-
-                                return `
-                                  <td data-review-cell="${escapeHtml(getAppealKey(ps.playerId, cat.id))}" class="block rounded-lg border border-slate-200/80 p-3 align-top md:table-cell md:rounded-none md:border-0 md:px-4 md:py-4 transition-shadow ${isSelf ? "bg-slate-50/70 md:bg-slate-50/50" : "bg-white md:bg-transparent"}">
-                                    <div class="space-y-2">
-                                      <div class="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100 md:hidden">
-                                        <span class="text-xs font-bold text-slate-800 truncate">
-                                          ${escapeHtml(ps.playerName)}${isRowAdmin ? ' <span class="text-[11px] font-semibold text-emerald-700">(Admin)</span>' : ""}${isSelf && !isRowAdmin ? ' <span class="text-[11px] font-semibold text-slate-500">(You)</span>' : ""}
-                                        </span>
-                                        <span class="font-mono-tabular text-[11px] font-bold text-emerald-700 shrink-0">${ps.roundTotal} pts</span>
-                                      </div>
-                                      <div class="flex items-start justify-between gap-2">
-                                        <div class="min-w-0">
-                                          <p class="font-semibold break-words ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
-                                          <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
-                                        </div>
-                                        <span class="font-mono-tabular text-xs font-bold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
-                                      </div>
-                                      ${hasWord ? (
-                                        isAdmin ? `
-                                          <div class="flex flex-wrap items-center gap-1.5 pt-1" role="group" aria-label="Admin scoring for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
-                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
-                                              aria-pressed="${activeRuling === "valid"}"
-                                              title="Mark as unique valid word (10 pts)"
-                                              class="rounded-md border px-2.5 py-1.5 text-xs sm:px-2 sm:py-1 sm:text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                                                activeRuling === "valid"
-                                                  ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
-                                                  : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                                              }">
-                                              10 pts (Valid)
-                                            </button>
-                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
-                                              aria-pressed="${activeRuling === "duplicate"}"
-                                              title="Same / matching word (spelling or Malayalam/Manglish variation) — reduces to 5 pts instead of 0"
-                                              class="rounded-md border px-2.5 py-1.5 text-xs sm:px-2 sm:py-1 sm:text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                                                activeRuling === "duplicate"
-                                                  ? "border-amber-600 bg-amber-600 text-white shadow-sm"
-                                                  : "border-amber-200 bg-amber-50/70 text-amber-800 hover:border-amber-400 hover:bg-amber-100"
-                                              }">
-                                              5 pts (Match)
-                                            </button>
-                                            <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
-                                              aria-pressed="${activeRuling === "invalid"}"
-                                              title="Disapprove invalid or wrong-letter word (0 pts)"
-                                              class="rounded-md border px-2.5 py-1.5 text-xs sm:px-2 sm:py-1 sm:text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                                                activeRuling === "invalid"
-                                                  ? "border-red-600 bg-red-600 text-white shadow-sm"
-                                                  : "border-slate-200 bg-slate-50 text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-                                              }">
-                                              0 pts (Disapprove)
-                                            </button>
-                                            ${activeRuling !== "auto" ? `
-                                              <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
-                                                class="px-1.5 py-1 text-xs sm:text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">
-                                                Reset
-                                              </button>` : ""}
-                                          </div>` : `
-                                          <p class="text-[11px] font-medium text-slate-400">
-                                            ${activeRuling !== "auto" ? "Admin ruling applied" : "Admin controls rulings"}
-                                          </p>`
-                                      ) : ""}
+                              <td data-review-cell="${escapeHtml(getAppealKey(ps.playerId, cat.id))}"
+                                class="block border-b border-slate-100 last:border-b-0 px-3 py-2 align-top md:table-cell md:border-0 md:px-4 md:py-3 transition-shadow ${isSelf ? "bg-slate-50/60 md:bg-slate-50/45" : "bg-white md:bg-transparent"}">
+                                <!-- Mobile Compact Row Layout (< md) -->
+                                <div class="md:hidden space-y-1.5">
+                                  <div class="flex items-center justify-between gap-2">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                      <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs leading-none select-none" aria-hidden="true">${escapeHtml(av)}</span>
+                                      <span class="truncate text-xs font-bold text-slate-800">
+                                        ${escapeHtml(ps.playerName)}${isRowAdmin ? ' <span class="text-[10px] font-semibold text-emerald-700">(Admin)</span>' : ""}${isSelf && !isRowAdmin ? ' <span class="text-[10px] font-semibold text-slate-500">(You)</span>' : ""}
+                                      </span>
                                     </div>
-                                  </td>`;
-                              }).join("")}
-                            </tr>`;
-                        }).join("")}
-                      </tbody>
-                    </table>
-                  </section>
+                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono-tabular text-[10px] font-bold leading-none ${chip.cls}">
+                                      <span>+${c.points}</span>
+                                      <span class="opacity-80">· ${escapeHtml(chip.text)}</span>
+                                    </span>
+                                  </div>
+                                  <div class="flex items-center justify-between gap-2 pl-6">
+                                    <p class="min-w-0 flex-1 text-sm font-semibold break-words leading-snug ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
+                                    ${hasWord && isAdmin ? `
+                                      <div class="flex items-center gap-1 shrink-0" role="group" aria-label="Admin scoring for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
+                                          aria-pressed="${activeRuling === "valid"}" aria-label="10 pts (Valid)" title="10 pts (Valid)"
+                                          class="inline-flex h-7 min-w-[32px] items-center justify-center rounded-md border px-2 font-mono-tabular text-xs font-extrabold transition-colors ${
+                                            activeRuling === "valid"
+                                              ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                                              : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                                          }">10</button>
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
+                                          aria-pressed="${activeRuling === "duplicate"}" aria-label="5 pts (Match)" title="5 pts (Same Word / Match)"
+                                          class="inline-flex h-7 min-w-[30px] items-center justify-center rounded-md border px-2 font-mono-tabular text-xs font-extrabold transition-colors ${
+                                            activeRuling === "duplicate"
+                                              ? "border-amber-600 bg-amber-600 text-white shadow-sm"
+                                              : "border-amber-200 bg-amber-50/80 text-amber-800 hover:border-amber-400 hover:bg-amber-100"
+                                          }">5</button>
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
+                                          aria-pressed="${activeRuling === "invalid"}" aria-label="0 pts (Disapprove)" title="0 pts (Disapprove)"
+                                          class="inline-flex h-7 min-w-[30px] items-center justify-center rounded-md border px-2 font-mono-tabular text-xs font-extrabold transition-colors ${
+                                            activeRuling === "invalid"
+                                              ? "border-red-600 bg-red-600 text-white shadow-sm"
+                                              : "border-slate-200 bg-slate-50 text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                                          }">0</button>
+                                        ${activeRuling !== "auto" ? `
+                                          <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
+                                            aria-label="Reset ruling" title="Reset to auto score"
+                                            class="inline-flex h-7 w-7 items-center justify-center rounded-md text-xs font-bold text-slate-400 hover:bg-slate-100 hover:text-slate-700">↺</button>` : ""}
+                                      </div>` : ""}
+                                  </div>
+                                </div>
 
-                  <div class="flex flex-col sm:flex-row sm:items-center ${isAdmin ? "sm:justify-end" : "sm:justify-between"} px-1">
-                    ${isAdmin
-                      ? `<button type="button" data-action="confirm-appeals" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shadow-xs">Confirm Scores &amp; Continue →</button>`
-                      : `<p class="text-sm font-medium text-slate-600">Waiting for Room Admin (${escapeHtml(adminName)}) to confirm...</p>`}
-                  </div>
-                </div>
+                                <!-- Desktop Tabular Layout (md+) -->
+                                <div class="hidden md:block space-y-2">
+                                  <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                      <p class="font-semibold break-words ${!isValidNow ? "text-slate-400 line-through" : "text-slate-900"}">${escapeHtml(c.raw || "—")}</p>
+                                      <p class="mt-0.5 text-xs font-medium ${colorCls}">${escapeHtml(c.reason)}</p>
+                                    </div>
+                                    <span class="font-mono-tabular text-xs font-extrabold shrink-0 ${c.points === 10 ? "text-emerald-700" : c.points === 5 ? "text-amber-700" : "text-slate-400"}">+${c.points}</span>
+                                  </div>
+                                  ${hasWord ? (
+                                    isAdmin ? `
+                                      <div class="flex flex-wrap items-center gap-1 pt-0.5" role="group" aria-label="Admin scoring for ${escapeHtml(ps.playerName)}'s ${escapeHtml(cat.en)}: ${escapeHtml(c.raw)}">
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="valid"
+                                          aria-pressed="${activeRuling === "valid"}" title="Mark as unique valid word (10 pts)"
+                                          class="rounded-md border px-2 py-1 text-[11px] font-bold whitespace-nowrap transition-colors ${
+                                            activeRuling === "valid"
+                                              ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                                              : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                                          }">10<span class="hidden lg:inline font-semibold"> Valid</span></button>
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="duplicate"
+                                          aria-pressed="${activeRuling === "duplicate"}" title="Same / matching word — reduces to 5 pts"
+                                          class="rounded-md border px-2 py-1 text-[11px] font-bold whitespace-nowrap transition-colors ${
+                                            activeRuling === "duplicate"
+                                              ? "border-amber-600 bg-amber-600 text-white shadow-sm"
+                                              : "border-amber-200 bg-amber-50/75 text-amber-800 hover:border-amber-400 hover:bg-amber-100"
+                                          }">5<span class="hidden lg:inline font-semibold"> Match</span></button>
+                                        <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="invalid"
+                                          aria-pressed="${activeRuling === "invalid"}" title="Disapprove invalid or wrong-letter word (0 pts)"
+                                          class="rounded-md border px-2 py-1 text-[11px] font-bold whitespace-nowrap transition-colors ${
+                                            activeRuling === "invalid"
+                                              ? "border-red-600 bg-red-600 text-white shadow-sm"
+                                              : "border-slate-200 bg-slate-50 text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                                          }">0<span class="hidden lg:inline font-semibold"> No</span></button>
+                                        ${activeRuling !== "auto" ? `
+                                          <button type="button" data-action="set-appeal" data-pid="${ps.playerId}" data-cat="${cat.id}" data-decision="auto"
+                                            title="Reset to auto score"
+                                            class="px-1.5 py-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 underline">Reset</button>` : ""}
+                                      </div>` : `
+                                      <p class="text-[11px] font-medium text-slate-400">
+                                        ${activeRuling !== "auto" ? "Admin ruling applied" : "Admin controls rulings"}
+                                      </p>`
+                                  ) : ""}
+                                </div>
+                              </td>`;
+                          }).join("")}
+                        </tr>`;
+                    }).join("")}
+                  </tbody>
+                </table>
+              </section>
 
-                <!-- Review Chat / Appeals Message Box -->
-                <aside id="review-chat-panel" aria-label="Review Chat" class="scroll-mt-4 lg:col-span-4 rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col lg:sticky lg:top-6 overflow-hidden">
-                  <div class="border-b border-slate-100 px-4 py-3 bg-slate-50/70">
-                    <div class="flex items-center justify-between gap-2">
-                      <h2 class="font-display text-base font-extrabold text-slate-900">Review Chat</h2>
-                      <span class="font-mono-tabular text-[11px] font-semibold text-slate-500">${roundMessages.length} ${roundMessages.length === 1 ? "msg" : "msgs"}</span>
+              <!-- Bottom Confirm / Waiting Status Row -->
+              <div class="flex flex-col sm:flex-row sm:items-center ${isAdmin ? "sm:justify-end" : "sm:justify-between"} px-0.5">
+                ${isAdmin
+                  ? `<button type="button" data-action="confirm-appeals" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shadow-xs">Confirm Scores &amp; Continue →</button>`
+                  : `<p class="text-sm font-medium text-slate-600">Waiting for Room Admin (${escapeHtml(adminName)}) to confirm...</p>`}
+              </div>
+            </main>
+
+            <!-- Floating Review Chat Quick-Toggle Button (always reachable while scrolling) -->
+            ${!chatOpen ? `
+              <button id="floating-review-chat-btn" type="button" data-action="open-review-chat"
+                aria-label="Open Review Chat${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}"
+                class="fixed bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white shadow-lg ring-2 ring-white/90 hover:bg-emerald-800 active:scale-95 transition-all">
+                <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 shrink-0" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M10 2c-4.418 0-8 2.91-8 6.5 0 1.693.79 3.235 2.092 4.393L3.1 16.2a.75.75 0 00.973.92l3.437-1.26c.786.22 1.622.34 2.49.34 4.418 0 8-2.91 8-6.5S14.418 2 10 2z" clip-rule="evenodd" />
+                </svg>
+                <span>Chat</span>
+                ${unreadCount > 0
+                  ? `<span class="inline-flex min-w-[20px] items-center justify-center rounded-full bg-amber-400 px-1.5 py-0.5 font-mono-tabular text-[11px] font-extrabold text-amber-950 leading-none">${unreadCount}</span>`
+                  : (roundMessages.length > 0 ? `<span class="font-mono-tabular text-[11px] text-emerald-100">${roundMessages.length}</span>` : "")}
+              </button>` : ""}
+
+            <!-- Collapsible / Slide-Over Review Chat Drawer -->
+            ${chatOpen ? `
+              <div id="review-chat-drawer" role="dialog" aria-modal="true" aria-label="Review Chat"
+                class="fixed inset-0 z-40 flex items-end sm:items-stretch sm:justify-end bg-slate-950/45 backdrop-blur-[1px]">
+                <div class="absolute inset-0" data-action="close-review-chat" aria-hidden="true"></div>
+                <aside id="review-chat-panel"
+                  class="relative z-10 flex w-full max-h-[82vh] sm:h-full sm:max-h-none sm:max-w-md flex-col overflow-hidden rounded-t-2xl sm:rounded-none sm:rounded-l-2xl bg-white shadow-2xl border-t sm:border-t-0 sm:border-l border-slate-200">
+                  <div class="shrink-0 border-b border-slate-100 px-4 py-3 bg-slate-50/90 flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <h2 class="font-display text-base font-extrabold text-slate-900">Review Chat</h2>
+                        <span class="font-mono-tabular text-[11px] font-semibold text-slate-500">${roundMessages.length} ${roundMessages.length === 1 ? "msg" : "msgs"}</span>
+                      </div>
+                      <p class="mt-0.5 text-[11px] text-slate-500 truncate">Explain a word or ask Admin for a 5-pt match.</p>
                     </div>
-                    <p class="mt-0.5 text-xs text-slate-500">
-                      Explain a word, flag an invalid entry, or ask Admin to mark a 5-pt duplicate.
-                    </p>
+                    <button type="button" data-action="close-review-chat" aria-label="Close Review Chat"
+                      class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-900">
+                      <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                      </svg>
+                    </button>
                   </div>
 
-                  <div id="review-chat-list" class="p-3.5 sm:p-4 space-y-2.5 max-h-[300px] lg:max-h-[420px] min-h-[160px] overflow-y-auto bg-white">
+                  <div id="review-chat-list" class="flex-1 min-h-[180px] overflow-y-auto p-3.5 sm:p-4 space-y-2.5 bg-white">
                     ${roundMessages.length === 0 ? `
                       <div class="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3.5 py-6 text-center">
                         <p class="text-xs font-semibold text-slate-600">No appeal messages yet</p>
@@ -3475,7 +3670,7 @@
                       }).join("")}
                   </div>
 
-                  <form id="review-chat-form" class="border-t border-slate-200 bg-slate-50/60 p-3.5 space-y-2">
+                  <form id="review-chat-form" class="shrink-0 border-t border-slate-200 bg-slate-50/80 p-3.5 space-y-2">
                     <div class="flex items-center justify-between text-[11px] text-slate-500">
                       <span>Sending as <strong class="text-slate-700">${escapeHtml(chatSender.name)}${chatSender.isAdmin ? " (Admin)" : ""}</strong></span>
                       <span class="font-mono-tabular">${(state.reviewChatDraft || "").length}/240</span>
@@ -3492,8 +3687,7 @@
                     </div>
                   </form>
                 </aside>
-              </div>
-            </main>`;
+              </div>` : ""}`;
         }
 
         function renderResults() {
@@ -5276,8 +5470,10 @@
           const chatSelStart = preservedInputId ? activeEl.selectionStart : null;
           const chatSelEnd = preservedInputId ? activeEl.selectionEnd : null;
 
-          if (state.phase !== "appeal" && state.reviewMenuOpen) {
-            state.reviewMenuOpen = false;
+          if (state.phase !== "appeal") {
+            if (state.reviewMenuOpen) state.reviewMenuOpen = false;
+            if (state.reviewChatOpen) state.reviewChatOpen = false;
+            if (state.reviewCategoryFilter !== "all") state.reviewCategoryFilter = "all";
           }
           if (state.phase !== "appeal" && state.phase !== "results") {
             clearReviewChatToasts();
@@ -5612,6 +5808,31 @@
             state.reviewMenuOpen = !state.reviewMenuOpen;
             render();
           }
+          else if (act === "set-review-category") {
+            const cat = btn.dataset.cat || "all";
+            state.reviewCategoryFilter = cat;
+            render();
+          }
+          else if (act === "toggle-review-chat") {
+            state.reviewChatOpen = !state.reviewChatOpen;
+            state.reviewMenuOpen = false;
+            render();
+            if (state.reviewChatOpen) {
+              const chatInput = document.getElementById("review-chat-input");
+              if (chatInput) {
+                try { chatInput.focus({ preventScroll: true }); } catch { chatInput.focus(); }
+              }
+            }
+          }
+          else if (act === "open-review-chat") {
+            state.reviewChatOpen = true;
+            state.reviewMenuOpen = false;
+            render();
+          }
+          else if (act === "close-review-chat") {
+            state.reviewChatOpen = false;
+            render();
+          }
           else if (act === "jump-review-chat") {
             jumpToReviewChatPanel();
           }
@@ -5801,13 +6022,15 @@
               ? "rules"
               : state.reviewMenuOpen
                 ? "review-menu"
-                : state.shareModalOpen
-                  ? "share-image"
-                  : state.historyDrawerOpen
-                    ? "history-drawer"
-                    : state.phase === "playing" && state.paused
-                      ? "pause"
-                      : "";
+                : state.reviewChatOpen
+                  ? "review-chat"
+                  : state.shareModalOpen
+                    ? "share-image"
+                    : state.historyDrawerOpen
+                      ? "history-drawer"
+                      : state.phase === "playing" && state.paused
+                        ? "pause"
+                        : "";
           return {
             phase: state.phase,
             overlay,
@@ -5902,6 +6125,12 @@
           }
           if (state.reviewMenuOpen) {
             state.reviewMenuOpen = false;
+            currentHistoryKey = `${state.phase}|`;
+            render();
+            return;
+          }
+          if (state.reviewChatOpen) {
+            state.reviewChatOpen = false;
             currentHistoryKey = `${state.phase}|`;
             render();
             return;
