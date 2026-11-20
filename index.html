@@ -582,6 +582,13 @@
           return `${playerId}__${catId}`;
         }
 
+        function parseAppealKey(key) {
+          const s = String(key || "");
+          const idx = s.lastIndexOf("__");
+          if (idx <= 0) return null;
+          return { playerId: s.slice(0, idx), catId: s.slice(idx + 2) };
+        }
+
         function getCellAdminRuling(appeals, playerId, catId) {
           const entry = appeals && appeals[getAppealKey(playerId, catId)];
           if (!entry || typeof entry !== "object") {
@@ -934,7 +941,10 @@
         const seenLobbyReactionIds = new Set();
         const seenReviewMessageIds = new Set();
         let reviewToastHydratedKey = "";
+        let appealsToastHydratedKey = "";
+        let lastOnlineAppealsSigMap = {};
         let reviewChatHighlightTimer = null;
+        let reviewCellHighlightTimer = null;
 
         function getPlayerAvatar(player, fallbackIdx = 0) {
           if (player && typeof player.avatar === "string" && player.avatar.trim()) {
@@ -1002,13 +1012,150 @@
           }, 1400);
         }
 
+        function jumpToReviewCell(cellKey) {
+          if (!cellKey) return;
+          const cells = Array.from(document.querySelectorAll("[data-review-cell]"));
+          const target = cells.find((el) => el.getAttribute("data-review-cell") === cellKey);
+          if (!target) return;
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+          target.classList.add("ring-2", "ring-amber-500", "ring-inset");
+          if (reviewCellHighlightTimer) clearTimeout(reviewCellHighlightTimer);
+          reviewCellHighlightTimer = setTimeout(() => {
+            target.classList.remove("ring-2", "ring-amber-500", "ring-inset");
+          }, 1500);
+        }
+
+        function buildRulingToastPayload(result, playerId, catId, decision, adminName) {
+          if (!result || !Array.isArray(result.playerScores)) return null;
+          const ps = result.playerScores.find((x) => x.playerId === playerId);
+          if (!ps || !ps.cells || !ps.cells[catId]) return null;
+          const cell = ps.cells[catId];
+          const cat = CATEGORIES.find((c) => c.id === catId);
+          const lbl = cat ? formatCatLabel(cat) : { primary: catId, secondary: "" };
+          const categoryLabel = lbl.secondary ? `${lbl.primary} (${lbl.secondary})` : lbl.primary;
+          const word = String(cell.raw || "").trim() || "—";
+          return {
+            key: getAppealKey(playerId, catId),
+            playerId,
+            playerName: ps.playerName || "Player",
+            avatar: resolveReviewMessageAvatar({ senderId: playerId, senderName: ps.playerName }),
+            catId,
+            categoryLabel,
+            word,
+            decision: decision || "auto",
+            points: typeof cell.points === "number" ? cell.points : 0,
+            adminName: adminName || getRoomAdminName() || "Admin",
+          };
+        }
+
+        function getAppealEntrySig(entry) {
+          if (!entry || typeof entry !== "object") return "";
+          const dec = typeof entry.decision === "string" ? entry.decision : "auto";
+          const ts = entry.updatedAt ? Number(entry.updatedAt) : 0;
+          return `${dec}|${ts}`;
+        }
+
+        function showReviewRulingToast(payload, opts = {}) {
+          if (!payload) return;
+          const stage = document.getElementById("review-toast-stage");
+          if (!stage) return;
+
+          // Replace any existing banner for the exact same cell so rapid Admin edits update cleanly in-place
+          const existingSame = Array.from(stage.querySelectorAll("[data-ruling-key]")).find(
+            (el) => el.getAttribute("data-ruling-key") === payload.key && el.dataset.closing !== "1"
+          );
+          if (existingSame) {
+            if (existingSame._dismissTimer) clearTimeout(existingSame._dismissTimer);
+            existingSame.remove();
+          }
+
+          // Shared queue cap (max 2 banners across Review Chat + Admin Rulings)
+          const existing = Array.from(stage.querySelectorAll("[data-review-toast]")).filter((el) => el.dataset.closing !== "1");
+          if (existing.length >= 2) {
+            dismissReviewToastNode(existing[0]);
+          }
+
+          const dec = payload.decision;
+          const pts = payload.points;
+          let borderCls = "border-slate-300/95";
+          let avatarBgCls = "bg-slate-100 ring-1 ring-slate-200";
+          let badgeCls = "bg-slate-100 text-slate-700";
+          let statusText = `${pts} pts · Reset`;
+
+          if (dec === "invalid" || dec === "rejected") {
+            borderCls = "border-red-300/95";
+            avatarBgCls = "bg-red-50 ring-1 ring-red-200";
+            badgeCls = "bg-red-100 text-red-800";
+            statusText = "0 pts · Disapproved";
+          } else if (dec === "duplicate") {
+            borderCls = "border-amber-300/95";
+            avatarBgCls = "bg-amber-50 ring-1 ring-amber-200";
+            badgeCls = "bg-amber-100 text-amber-900";
+            statusText = "5 pts · Same Word";
+          } else if (dec === "valid" || dec === "approved") {
+            borderCls = "border-emerald-300/95";
+            avatarBgCls = "bg-emerald-50 ring-1 ring-emerald-200";
+            badgeCls = "bg-emerald-100 text-emerald-800";
+            statusText = `${pts} pts · Valid`;
+          }
+
+          const durationMs = opts.durationMs || 4200;
+          const card = document.createElement("div");
+          card.setAttribute("data-review-toast", `ruling_${payload.key}_${Date.now()}`);
+          card.setAttribute("data-ruling-key", payload.key);
+          card.setAttribute("role", "status");
+          card.className =
+            `review-toast-in pointer-events-auto flex w-full max-w-[calc(100vw-1.5rem)] sm:max-w-md items-start gap-2.5 rounded-xl border ${borderCls} bg-white/95 px-3 py-2.5 text-slate-900 shadow-lg backdrop-blur-md ring-1 ring-slate-900/5`;
+
+          card.innerHTML = `
+            <button type="button" data-action="toast-jump-review-cell" data-cell-key="${escapeHtml(payload.key)}"
+              class="flex min-w-0 flex-1 items-start gap-2.5 text-left focus:outline-none">
+              <span class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${avatarBgCls} text-base leading-none select-none" aria-hidden="true">${escapeHtml(payload.avatar || "🦁")}</span>
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-center gap-1.5">
+                  <span class="truncate text-xs font-extrabold text-slate-900">${escapeHtml(payload.playerName)}</span>
+                  <span class="rounded px-1.5 py-0.5 font-mono-tabular text-[10px] font-extrabold leading-none ${badgeCls}">${escapeHtml(statusText)}</span>
+                </span>
+                <span class="mt-0.5 block break-words text-xs font-medium text-slate-700 leading-snug line-clamp-2">
+                  <strong class="font-bold text-slate-900">"${escapeHtml(payload.word)}"</strong> · ${escapeHtml(payload.categoryLabel)}
+                </span>
+                <span class="mt-1 block text-[10px] font-semibold text-slate-500">Admin (${escapeHtml(payload.adminName)}) updated score · Tap to view</span>
+              </span>
+            </button>
+            <button type="button" data-action="dismiss-review-toast" aria-label="Dismiss ruling notification"
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors">
+              <svg viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
+          `;
+
+          const scheduleDismiss = (ms) => {
+            if (card._dismissTimer) clearTimeout(card._dismissTimer);
+            card._dismissTimer = setTimeout(() => dismissReviewToastNode(card), ms);
+          };
+
+          card.addEventListener("mouseenter", () => {
+            if (card._dismissTimer) {
+              clearTimeout(card._dismissTimer);
+              card._dismissTimer = null;
+            }
+          });
+          card.addEventListener("mouseleave", () => {
+            scheduleDismiss(2000);
+          });
+
+          stage.appendChild(card);
+          scheduleDismiss(durationMs);
+        }
+
         function showReviewChatToast(msg, opts = {}) {
           if (!msg || !msg.text) return;
           const stage = document.getElementById("review-toast-stage");
           if (!stage) return;
 
           // Keep at most 2 stacked banners so essential top controls stay unobstructed
-          const existing = Array.from(stage.querySelectorAll("[data-review-toast]"));
+          const existing = Array.from(stage.querySelectorAll("[data-review-toast]")).filter((el) => el.dataset.closing !== "1");
           if (existing.length >= 2) {
             dismissReviewToastNode(existing[0]);
           }
@@ -1716,6 +1863,45 @@
                   }
                 }
               }
+              if (incoming.phase === "appeal" || incoming.phase === "results") {
+                const roundNum = Number(incoming.currentRound || 1);
+                const appealsKey = `${roomCode}|${roundNum}`;
+                const incomingAppeals = incoming.appeals && typeof incoming.appeals === "object" ? incoming.appeals : {};
+                const nextSigMap = {};
+                for (const [k, v] of Object.entries(incomingAppeals)) {
+                  const sig = getAppealEntrySig(v);
+                  if (sig) nextSigMap[k] = sig;
+                }
+                if (appealsToastHydratedKey !== appealsKey) {
+                  appealsToastHydratedKey = appealsKey;
+                  lastOnlineAppealsSigMap = nextSigMap;
+                } else {
+                  const allKeys = new Set([...Object.keys(lastOnlineAppealsSigMap), ...Object.keys(nextSigMap)]);
+                  const changedKeys = [];
+                  for (const k of allKeys) {
+                    if ((lastOnlineAppealsSigMap[k] || "") !== (nextSigMap[k] || "")) {
+                      changedKeys.push(k);
+                    }
+                  }
+                  lastOnlineAppealsSigMap = nextSigMap;
+                  if (changedKeys.length > 0) {
+                    const scored = buildOnlineCurrentRoundResult(incoming);
+                    const fallbackAdmin = getRoomAdminName();
+                    changedKeys.slice(-2).forEach((k) => {
+                      const parsed = parseAppealKey(k);
+                      if (!parsed) return;
+                      const ruling = getCellAdminRuling(incomingAppeals, parsed.playerId, parsed.catId);
+                      const entry = incomingAppeals[k];
+                      const byName = (entry && entry.by) || ruling.by || fallbackAdmin;
+                      const payload = buildRulingToastPayload(scored, parsed.playerId, parsed.catId, ruling.decision, byName);
+                      if (payload) showReviewRulingToast(payload);
+                    });
+                  }
+                }
+              } else {
+                appealsToastHydratedKey = "";
+                lastOnlineAppealsSigMap = {};
+              }
               if (incoming.phase === "gameover" && prevPhase !== "gameover") {
                 soundFx.playVictory();
               }
@@ -2042,8 +2228,13 @@
           const currentRuling = getCellAdminRuling(r.appeals || {}, playerId, catId);
           const targetDecision = decision === currentRuling.decision ? "auto" : decision;
 
+          const nowTs = Date.now();
           const updatePayload = {};
+          const nextAppeals = { ...(r.appeals || {}) };
+          const prevSig = lastOnlineAppealsSigMap[key] || "";
           if (targetDecision === "auto") {
+            delete nextAppeals[key];
+            delete lastOnlineAppealsSigMap[key];
             updatePayload[`appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
             if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
               updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = window.firebase.firestore.FieldValue.delete();
@@ -2053,17 +2244,26 @@
               decision: targetDecision,
               by: adminName,
               adminId: myClientId,
-              updatedAt: Date.now(),
+              updatedAt: nowTs,
             };
+            nextAppeals[key] = val;
+            lastOnlineAppealsSigMap[key] = getAppealEntrySig(val);
             updatePayload[`appeals.${key}`] = val;
             if (r.roundHistory && r.roundHistory[String(r.currentRound)]) {
               updatePayload[`roundHistory.${r.currentRound}.appeals.${key}`] = val;
             }
           }
 
+          appealsToastHydratedKey = `${r.roomCode}|${Number(r.currentRound || 1)}`;
+          const optimisticResult = buildOnlineCurrentRoundResult({ ...r, appeals: nextAppeals });
+          const optimisticPayload = buildRulingToastPayload(optimisticResult, playerId, catId, targetDecision, adminName);
+          if (optimisticPayload) showReviewRulingToast(optimisticPayload);
+
           try {
             await db.collection("rooms").doc(r.roomCode).update(updatePayload);
           } catch (err) {
+            if (prevSig) lastOnlineAppealsSigMap[key] = prevSig;
+            else delete lastOnlineAppealsSigMap[key];
             state.onlineError = formatFirebaseError(err, "Failed to update admin ruling.");
             render();
           }
@@ -2314,6 +2514,8 @@
           const updated = scoreRound(state.currentRound, state.targetLetter, state.roundSubmissions, state.appeals);
           state.roundResults = state.roundResults.map((r) => (r.roundNumber === state.currentRound ? updated : r));
           render();
+          const toastPayload = buildRulingToastPayload(updated, playerId, catId, nextDecision, adminName);
+          if (toastPayload) showReviewRulingToast(toastPayload);
         }
 
         function sendLocalReviewMessage(rawText) {
@@ -3160,7 +3362,7 @@
                                 const colorCls = c.status === "unique" ? "text-emerald-700" : c.status === "shared" ? "text-amber-700" : "text-red-700";
 
                                 return `
-                                  <td class="block rounded-lg border border-slate-200/80 p-3 align-top md:table-cell md:rounded-none md:border-0 md:px-4 md:py-4 ${isSelf ? "bg-slate-50/70 md:bg-slate-50/50" : "bg-white md:bg-transparent"}">
+                                  <td data-review-cell="${escapeHtml(getAppealKey(ps.playerId, cat.id))}" class="block rounded-lg border border-slate-200/80 p-3 align-top md:table-cell md:rounded-none md:border-0 md:px-4 md:py-4 transition-shadow ${isSelf ? "bg-slate-50/70 md:bg-slate-50/50" : "bg-white md:bg-transparent"}">
                                     <div class="space-y-2">
                                       <div class="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100 md:hidden">
                                         <span class="text-xs font-bold text-slate-800 truncate">
@@ -5074,8 +5276,10 @@
           const chatSelStart = preservedInputId ? activeEl.selectionStart : null;
           const chatSelEnd = preservedInputId ? activeEl.selectionEnd : null;
 
-          if (state.phase !== "appeal") {
-            if (state.reviewMenuOpen) state.reviewMenuOpen = false;
+          if (state.phase !== "appeal" && state.reviewMenuOpen) {
+            state.reviewMenuOpen = false;
+          }
+          if (state.phase !== "appeal" && state.phase !== "results") {
             clearReviewChatToasts();
           }
           if (state.phase !== "title" && state.rulesOpen) {
@@ -5415,6 +5619,12 @@
             const toastNode = btn.closest("[data-review-toast]");
             if (toastNode) dismissReviewToastNode(toastNode);
             jumpToReviewChatPanel();
+          }
+          else if (act === "toast-jump-review-cell") {
+            const toastNode = btn.closest("[data-review-toast]");
+            const cellKey = btn.dataset.cellKey || "";
+            if (toastNode) dismissReviewToastNode(toastNode);
+            jumpToReviewCell(cellKey);
           }
           else if (act === "dismiss-review-toast") {
             const toastNode = btn.closest("[data-review-toast]");
