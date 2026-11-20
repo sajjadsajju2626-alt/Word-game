@@ -2548,10 +2548,10 @@
                   <div class="min-w-0">
                     <p class="text-xs font-semibold text-amber-700">അപ്പീൽ &amp; റിവ്യൂ · Round ${result.roundNumber} of ${totalRounds}</p>
                     <h1 class="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">Appeal &amp; Review Answers</h1>
-                    <p class="mt-0.5 text-xs sm:text-sm text-slate-600">
+                    <p class="mt-0.5 text-xs text-slate-500">
                       ${isAdmin
-                        ? `Room Admin (${escapeHtml(adminName)}): Review answers for "${escapeHtml(result.letter)}" — use 5 pts (Match) for spelling or Malayalam/Manglish variations instead of 0 pts (Disapprove).`
-                        : `Inspect answers for "${escapeHtml(result.letter)}". Only Room Admin (${escapeHtml(adminName)}) can change rulings — use Review Chat to explain or request a 5-pt match.`}
+                        ? `Room Admin (${escapeHtml(adminName)}) · Review answers for "${escapeHtml(result.letter)}"`
+                        : `Room Admin: ${escapeHtml(adminName)} · Use Review Chat to appeal`}
                     </p>
                   </div>
                 </div>
@@ -2596,11 +2596,8 @@
               </section>
 
               ${passAndPlayHumans.length > 1 ? `
-                <section class="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <div class="text-xs text-slate-600 leading-relaxed">
-                    <span class="font-bold text-slate-800">Acting as:</span>
-                    Only <span class="font-semibold text-emerald-800">${escapeHtml(adminName)} (Admin)</span> can apply 10 pts (Valid), 5 pts (Match), or 0 pts (Disapprove) rulings. Use <span class="font-semibold text-amber-700">5 pts (Match)</span> for minor spelling or Malayalam/Manglish duplicates.
-                  </div>
+                <section class="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+                  <span class="text-xs font-semibold text-slate-700">Viewing as:</span>
                   <div class="flex flex-wrap gap-1.5 rounded-lg bg-slate-100 p-1">
                     ${passAndPlayHumans.map((p) => `
                       <button type="button" data-action="set-reviewer" data-rid="${p.id}"
@@ -2608,16 +2605,7 @@
                           reviewerId === p.id ? "bg-white text-emerald-800 shadow-sm" : "text-slate-600 hover:text-slate-900"
                         }">${escapeHtml(p.name)}${p.id === adminId ? " · Admin" : ""}</button>`).join("")}
                   </div>
-                </section>` : `
-                <section class="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-xs ${
-                  isAdmin ? "border-emerald-200 bg-emerald-50/70 text-emerald-900" : "border-amber-200 bg-amber-50/70 text-amber-900"
-                }">
-                  <p class="font-medium leading-relaxed">
-                    ${isAdmin
-                      ? `<span class="font-bold">Room Admin Controls:</span> Use <span class="font-semibold text-amber-800">5 pts (Match)</span> to reduce matching words (minor spelling, transliteration, or Malayalam/Manglish variations) from 10 to 5 pts without disapproving to 0.`
-                      : `<span class="font-bold">Read-Only Review:</span> Only Room Admin (${escapeHtml(adminName)}) can change scores. Use Review Chat to explain your word or ask Admin to mark a 5-pt match.`}
-                  </p>
-                </section>`}
+                </section>` : ""}
 
               ${state.onlineError ? `<p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">${escapeHtml(state.onlineError)}</p>` : ""}
 
@@ -2732,17 +2720,11 @@
                     </table>
                   </section>
 
-                  <section class="flex flex-col gap-3.5 rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                    <div class="text-xs text-slate-600 space-y-0.5 leading-relaxed">
-                      <p class="font-semibold text-slate-800">Admin-Moderated Scoring · No Answer Editing</p>
-                      <p>10 pts (Valid) unique word · 5 pts (Match) same word / spelling or Manglish variation · 0 pts (Disapprove) invalid or wrong letter</p>
-                    </div>
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
-                      ${isAdmin
-                        ? `<button type="button" data-action="confirm-appeals" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shadow-xs">Confirm Scores &amp; Continue →</button>`
-                        : `<p class="text-sm font-medium text-slate-600">Waiting for Room Admin (${escapeHtml(adminName)}) to confirm...</p>`}
-                    </div>
-                  </section>
+                  <div class="flex flex-col sm:flex-row sm:items-center ${isAdmin ? "sm:justify-end" : "sm:justify-between"} px-1">
+                    ${isAdmin
+                      ? `<button type="button" data-action="confirm-appeals" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800 whitespace-nowrap shadow-xs">Confirm Scores &amp; Continue →</button>`
+                      : `<p class="text-sm font-medium text-slate-600">Waiting for Room Admin (${escapeHtml(adminName)}) to confirm...</p>`}
+                  </div>
                 </div>
 
                 <!-- Review Chat / Appeals Message Box -->
